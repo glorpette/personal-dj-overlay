@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>VDJ Overlay - VR Booth Control</title>
+    <link rel="stylesheet" href="/css/admin.css?v=20260909-compact" />
+  </head>
+  <body>
+    <header class="admin-header">
+      <div class="brand-block">
+        <p class="eyebrow">VR BOOTH CONTROL</p>
+        <h1>Live DJ Overlay</h1>
+        <p class="sub">Tap a control to change it. Changes save automatically.</p>
+      </div>
+      <nav class="quick-links" aria-label="Preview links">
+        <a class="header-action" id="overlayLink" href="/overlay" target="_blank">Open overlay</a>
+        <a class="header-action" href="/display" target="_blank">Open display</a>
+      </nav>
+      <div class="health-strip" role="status" aria-live="polite">
+        <span id="saveState" class="status-pill neutral">READY</span>
+        <span id="audioBadge" class="status-pill neutral">AUDIO --</span>
+        <span id="vdjBadge" class="status-pill neutral">VDJ --</span>
+        <span id="spoutBadge" class="status-pill neutral">CLUB CAM --</span>
+      </div>
+    </header>
+
+    <main class="dashboard">
+      <section class="dashboard-glance" aria-label="Live status summary">
+        <div class="glance-card">
+          <span class="glance-label">System</span>
+          <strong id="systemSummary" class="glance-value">Loading...</strong>
+        </div>
+        <div class="glance-card">
+          <span class="glance-label">Now playing</span>
+          <strong id="nowPlayingSummary" class="glance-value">Waiting...</strong>
+        </div>
+      </section>
+
+      <section class="hero-panel" aria-labelledby="spoutHeading">
+        <div class="section-heading hero-heading">
+          <div>
+            <p class="eyebrow">PRIMARY CONTROL</p>
+            <h2 id="spoutHeading">Spout2 camera</h2>
+            <p class="section-help">One tap saves the setting and starts or stops the fixed Club Cam panel.</p>
+          </div>
+          <span id="spoutStateBadge" class="state-badge neutral">DISABLED</span>
+        </div>
+
+        <button id="spoutToggle" class="big-toggle" type="button" data-label="CLUB CAM" aria-pressed="false">
+          <span class="toggle-mark" aria-hidden="true">&#9679;</span>
+          <span class="toggle-copy">
+            <strong>Club camera feed</strong>
+            <small>Tap to enable or disable the camera panel</small>
+          </span>
+          <span class="toggle-state">OFF</span>
+        </button>
+
+        <p id="spoutStatusText" class="live-status">Waiting for status...</p>
+
+        <details id="spoutSettings" class="spout-settings">
+          <summary><span>Club Cam settings</span><span id="spoutSettingsHint" class="drawer-hint">Enable to expand</span></summary>
+          <div class="spout-settings-body">
+            <div class="hero-controls">
+              <label class="field field-wide">
+                <span class="field-label">Spout sender</span>
+                <select id="spoutSender">
+                  <option value="">(active Spout sender)</option>
+                </select>
+              </label>
+              <button id="refreshSpoutSenders" class="button secondary" type="button">Refresh senders</button>
+              <button id="restartSpout" class="button secondary" type="button">Restart receiver</button>
+            </div>
+
+            <div class="control-grid three-up">
+              <label class="field">
+                <span class="field-label">Capture FPS</span>
+                <input id="spoutFps" type="number" min="1" max="60" inputmode="numeric" />
+              </label>
+              <label class="range-field">
+                <span class="field-label">JPEG quality <output id="spoutQualityValue">72</output></span>
+                <input id="spoutQuality" type="range" min="20" max="95" step="1" />
+              </label>
+              <label class="field">
+                <span class="field-label">Maximum width</span>
+                <input id="spoutMaxWidth" type="number" min="160" max="4096" inputmode="numeric" />
+              </label>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <div class="dashboard-grid">
+        <section class="panel" aria-labelledby="audioHeading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">INPUT</p>
+              <h2 id="audioHeading">Audio source</h2>
+            </div>
+            <span id="audioState" class="state-badge neutral">OFFLINE</span>
+          </div>
+          <p id="audioStatusText" class="live-status">Waiting for audio status...</p>
+          <label class="field">
+            <span class="field-label">Playback output</span>
+            <select id="device"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Backend</span>
+            <select id="backend">
+              <option value="auto">Auto - WASAPI loopback on Windows</option>
+              <option value="wasapi">WASAPI loopback (recommended)</option>
+              <option value="ffmpeg">FFmpeg WASAPI fallback</option>
+              <option value="demo">Demo oscillator</option>
+            </select>
+          </label>
+          <div class="control-grid two-up">
+            <label class="range-field">
+              <span class="field-label">Sensitivity <output id="sensitivityValue">1.15</output></span>
+              <input id="sensitivity" type="range" min="0.3" max="3" step="0.05" />
+            </label>
+            <label class="range-field">
+              <span class="field-label">Smoothing <output id="smoothingValue">0.58</output></span>
+              <input id="smoothing" type="range" min="0" max="0.9" step="0.02" />
+            </label>
+          </div>
+          <p class="field-help">Choose the Windows playback output VirtualDJ is using, not a microphone.</p>
+          <div class="button-row">
+            <button id="refreshDevices" class="button secondary" type="button">Refresh devices</button>
+            <button id="restartAudio" class="button secondary" type="button">Restart capture</button>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="visualHeading">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">LOOK</p>
+              <h2 id="visualHeading">Visual style</h2>
+            </div>
+          </div>
+          <div class="control-grid two-up">
+            <label class="field">
+              <span class="field-label">Preset</span>
+              <select id="preset">
+                <option value="helix">Helix strands</option>
+                <option value="ribbon">Circular ribbon</option>
+                <option value="wings">Mirrored stereo wings</option>
+                <option value="tunnel">Tunnel / cylinder</option>
+                <option value="burst">Radial burst</option>
+                <option value="cube">Bass cube</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Palette</span>
+              <select id="palette">
+                <option value="cyan-magenta">Cyan / magenta</option>
+                <option value="amber-ice">Amber / ice</option>
+                <option value="lime-violet">Lime / violet</option>
+                <option value="blood-gold">Blood / gold</option>
+                <option value="mono-ice">Mono ice</option>
+              </select>
+            </label>
+            <label class="field field-wide">
+              <span class="field-label">Alignment</span>
+              <select id="alignment">
+                <option value="center">Center</option>
+                <option value="bottom">Bottom third</option>
+                <option value="side">Side column</option>
+                <option value="frame">Frame / border</option>
+              </select>
+            </label>
+          </div>
+          <div class="control-grid two-up">
+            <label class="range-field">
+              <span class="field-label">Logo-safe <output id="logoSafeValue">0.12</output></span>
+              <input id="logoSafe" type="range" min="0" max="0.3" step="0.01" />
+            </label>
+            <label class="range-field">
+              <span class="field-label">Wave spin <output id="rotationSpeedValue">0.18</output></span>
+              <input id="rotationSpeed" type="range" min="0" max="1.2" step="0.02" />
+            </label>
+            <label class="range-field">
+              <span class="field-label">Logo spin <output id="logoSpinValue">0.35</output></span>
+              <input id="logoSpin" type="range" min="0" max="2.4" step="0.02" />
+            </label>
+            <label class="range-field">
+              <span class="field-label">Scale <output id="scaleValue">1</output></span>
+              <input id="scale" type="range" min="0.4" max="2" step="0.05" />
+            </label>
+            <label class="range-field field-wide">
+              <span class="field-label">Particle snap <output id="snapValue">0.35</output></span>
+              <input id="snap" type="range" min="0" max="1" step="0.01" />
+            </label>
+          </div>
+          <div class="toggle-grid">
+            <button id="bloomToggle" class="toggle-button" type="button" data-label="BLOOM" aria-pressed="false">
+              <span class="toggle-copy"><strong>Bloom glow</strong><small>Additive neon lighting</small></span>
+              <span class="toggle-state">OFF</span>
+            </button>
+            <button id="snapAutoToggle" class="toggle-button" type="button" data-label="AUTO BURST" aria-pressed="false">
+              <span class="toggle-copy"><strong>Auto burst</strong><small>React to drops and peaks</small></span>
+              <span class="toggle-state">OFF</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <details class="drawer">
+        <summary><span>VirtualDJ connection</span><span class="drawer-hint">Advanced</span></summary>
+        <div class="drawer-body">
+          <div class="control-grid three-up">
+            <label class="field">
+              <span class="field-label">Host</span>
+              <input id="vdjHost" type="text" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="field-label">Port</span>
+              <input id="vdjPort" type="number" inputmode="numeric" />
+            </label>
+            <label class="field">
+              <span class="field-label">Bearer</span>
+              <input id="vdjBearer" type="password" autocomplete="off" />
+            </label>
+          </div>
+          <label class="field compact-field">
+            <span class="field-label">Poll interval (ms)</span>
+            <input id="pollIntervalMs" type="number" min="250" max="5000" inputmode="numeric" />
+          </label>
+          <p class="field-help">Network Control must be running in VirtualDJ. Changes save automatically.</p>
+        </div>
+      </details>
+
+      <details class="drawer">
+        <summary><span>Now-playing files</span><span class="drawer-hint">Advanced</span></summary>
+        <div class="drawer-body">
+          <label class="field">
+            <span class="field-label">TXT path</span>
+            <input id="txtPath" type="text" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">JSON path</span>
+            <input id="jsonPath" type="text" autocomplete="off" />
+          </label>
+        </div>
+      </details>
+
+      <details class="drawer">
+        <summary><span>Diagnostics</span><span class="drawer-hint">Status and raw data</span></summary>
+        <div class="drawer-body diagnostics-grid">
+          <div>
+            <h3>System status</h3>
+            <pre id="status">loading...</pre>
+          </div>
+          <div>
+            <h3>Club Cam status</h3>
+            <pre id="spoutStatus">disabled</pre>
+          </div>
+          <div class="diagnostic-wide">
+            <h3>Now playing</h3>
+            <pre id="nowplaying"></pre>
+          </div>
+        </div>
+      </details>
+
+      <footer class="dashboard-footer">
+        <span id="saved" class="save-message">All changes save automatically.</span>
+        <button id="retrySave" class="button secondary" type="button" hidden>Retry unsaved changes</button>
+      </footer>
+    </main>
+
+    <p class="build-note">Build 2026-09-09-compact. This control surface is optimized for a 400x700 VR dashboard and coarse touch pointers.</p>
+    <script src="/js/admin.js?v=20260909-compact"></script>
+  </body>
+</html>

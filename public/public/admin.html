@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VDJ Overlay — Booth Admin</title>
+    <link rel="stylesheet" href="/css/admin.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Live DJ Overlay</h1>
+      <p class="sub">Local booth control. Overlay stays chrome-free.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Status</h2>
+        <pre id="status">loading…</pre>
+        <p class="urls">
+          Overlay: <a id="overlayLink" href="/overlay" target="_blank">/overlay</a>
+          · Display: <a href="/display" target="_blank">/display</a>
+        </p>
+      </section>
+      <section>
+        <h2>Audio device</h2>
+        <select id="device"></select>
+        <label>Backend
+          <select id="backend">
+            <option value="auto">auto (WASAPI loopback on Windows)</option>
+            <option value="wasapi">WASAPI loopback (recommended)</option>
+            <option value="ffmpeg">FFmpeg WASAPI fallback</option>
+            <option value="demo">demo oscillator (ignore live audio)</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Sensitivity <input id="sensitivity" type="range" min="0.3" max="3" step="0.05" /></label>
+          <label>Smoothing <input id="smoothing" type="range" min="0" max="0.9" step="0.02" /></label>
+        </div>
+        <p class="hint">Pick the <strong>playback</strong> device VirtualDJ is outputting to (Speakers, booth interface, stream cable). Not the microphone. After saving, play a track — the waveform should follow the master mix.</p>
+        <button id="refreshDevices" type="button">Refresh devices</button>
+        <button id="restartAudio" type="button">Restart capture</button>
+      </section>
+      <section>
+        <h2>Waveform</h2>
+        <label>Preset
+          <select id="preset">
+            <option value="helix">Helix strands</option>
+            <option value="ribbon">Circular ribbon</option>
+            <option value="wings">Mirrored stereo wings</option>
+            <option value="tunnel">Tunnel / cylinder</option>
+            <option value="burst">Radial burst</option>
+          </select>
+        </label>
+        <label>Palette
+          <select id="palette">
+            <option value="cyan-magenta">Cyan / magenta</option>
+            <option value="amber-ice">Amber / ice</option>
+            <option value="lime-violet">Lime / violet</option>
+            <option value="blood-gold">Blood / gold</option>
+            <option value="mono-ice">Mono ice</option>
+          </select>
+        </label>
+        <label>Alignment
+          <select id="alignment">
+            <option value="center">Center</option>
+            <option value="bottom">Bottom third</option>
+            <option value="side">Side column</option>
+            <option value="frame">Frame / border</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Logo-safe <input id="logoSafe" type="range" min="0" max="0.3" step="0.01" /></label>
+          <label>Spin <input id="rotationSpeed" type="range" min="0" max="1.2" step="0.02" /></label>
+          <label>Scale <input id="scale" type="range" min="0.4" max="2" step="0.05" /></label>
+        </div>
+        <label class="check"><input id="bloom" type="checkbox" /> Bloom / additive glow</label>
+      </section>
+      <section>
+        <h2>VirtualDJ</h2>
+        <div class="row">
+          <label>Host <input id="vdjHost" type="text" /></label>
+          <label>Port <input id="vdjPort" type="number" /></label>
+          <label>Bearer <input id="vdjBearer" type="password" autocomplete="off" /></label>
+        </div>
+        <label>Poll ms <input id="pollIntervalMs" type="number" min="250" max="5000" /></label>
+        <p class="hint">Network Control plugin must be running. Default examples use port 8080 (plugin setting may be 80).</p>
+      </section>
+      <section>
+        <h2>Now playing files</h2>
+        <label>TXT path <input id="txtPath" type="text" /></label>
+        <label>JSON path <input id="jsonPath" type="text" /></label>
+        <pre id="nowplaying"></pre>
+      </section>
+      <footer>
+        <button id="save" type="button" class="primary">Save config</button>
+        <span id="saved"></span>
+      </footer>
+    </main>
+    <script src="/js/admin.js"></script>
+  </body>
+</html>

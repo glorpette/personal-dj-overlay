@@ -1,0 +1,51 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 4780
+  },
+  "audio": {
+    "backend": "auto",
+    "device": "",
+    "sampleRate": 44100,
+    "channels": 2,
+    "fftSize": 2048,
+    "smoothing": 0.58,
+    "sensitivity": 1.15,
+    "stereo": true
+  },
+  "vdj": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "bearer": "",
+    "pollIntervalMs": 750,
+    "decks": [1, 2],
+    "historyFallback": true,
+    "historyDir": ""
+  },
+  "nowPlaying": {
+    "txtPath": "./data/nowplaying.txt",
+    "jsonPath": "./data/nowplaying.json",
+    "heartbeatMs": 5000
+  },
+  "spout": {
+    "enabled": false,
+    "sender": "",
+    "fps": 30,
+    "quality": 72,
+    "maxWidth": 880
+  },
+  "visual": {
+    "preset": "helix",
+    "palette": "cyan-magenta",
+    "bloom": true,
+    "alignment": "center",
+    "logoSafe": 0.12,
+    "rotationSpeed": 0.18,
+    "scale": 1.0,
+    "cameraYaw": 0.15,
+    "cameraPitch": 0.22,
+    "logoSpin": 0.35,
+    "snap": 0.35,
+    "snapAuto": true
+  }
+}

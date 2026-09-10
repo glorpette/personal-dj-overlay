@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VDJ Waveform Overlay</title>
+    <link rel="stylesheet" href="/css/overlay.css?v=20260909-live" />
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <div class="left-stack">
+      <aside id="camera-panel" class="camera-panel hidden" aria-hidden="true">
+        <div class="camera-frame">
+          <canvas id="spout-canvas" aria-label="Club camera feed"></canvas>
+          <div class="camera-status"><span id="spout-status">SEARCHING</span></div>
+        </div>
+      </aside>
+
+      <aside id="fly-left" class="flyout left hidden">
+        <div class="fly-card">
+          <div class="art">
+            <img alt="" />
+            <span class="fallback">1</span>
+          </div>
+          <div class="meta">
+            <div class="deck">DECK 1</div>
+            <div class="title">
+              <div class="title-clip">
+                <div class="title-track"><span class="t1"></span><span class="t2"></span></div>
+              </div>
+            </div>
+            <div class="artist"></div>
+            <div class="sub"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <aside id="fly-right" class="flyout right hidden">
+      <div class="fly-card">
+        <div class="meta">
+          <div class="deck">DECK 2</div>
+          <div class="title">
+            <div class="title-clip">
+              <div class="title-track"><span class="t1"></span><span class="t2"></span></div>
+            </div>
+          </div>
+          <div class="artist"></div>
+          <div class="sub"></div>
+        </div>
+        <div class="art">
+          <img alt="" />
+          <span class="fallback">2</span>
+        </div>
+      </div>
+    </aside>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three.module.js",
+          "three/addons/loaders/SVGLoader.js": "/vendor/SVGLoader.js"
+        }
+      }
+    </script>
+    <script type="module" src="/js/overlay.js?v=20260909-live"></script>
+  </body>
+</html>

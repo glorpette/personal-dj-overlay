@@ -1,0 +1,10 @@
+node_modules/
+dist/
+config.json
+data/nowplaying.txt
+data/nowplaying.json
+data/*.tmp
+*.log
+.DS_Store
+Thumbs.db
+.env

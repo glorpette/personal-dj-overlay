@@ -1,0 +1,94 @@
+VDJ Live Overlay - Third-Party Notices
+======================================
+
+This application is an internal personal tool. It is not offered as a public
+redistribution package. The notices below cover code and runtime components
+used by the application.
+
+Node.js
+-------
+Node.js is distributed under the MIT License. Node.js also includes bundled
+third-party components with their own notices. The complete license and
+third-party list for the exact runtime used to build the executable are
+available at:
+https://nodejs.org/download/release/v24.20.0/
+https://github.com/nodejs/node/blob/v24.x/LICENSE
+
+ws
+--
+Copyright (c) 2011 Einar Lielmanis
+Copyright (c) 2011-2024 ws contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Three.js and SVGLoader
+----------------------
+Three.js and its included examples loaders are distributed under the MIT
+License. The bundled files are in public/vendor.
+https://github.com/mrdoob/three.js/blob/r169/LICENSE
+https://github.com/mrdoob/three.js/tree/r169/examples/jsm/loaders
+
+MIT License
+
+Copyright (c) 2010-2024 three.js authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The SVGLoader source also contains the svg-numbers parser, distributed under
+the MIT License:
+https://github.com/blowsie/svg-numbers
+
+Spout2 interoperability
+-----------------------
+The native helper implements the Spout sender-map and Direct3D interoperability
+protocol without bundling the Spout SDK or its binaries. If code is later
+copied from Spout2, retain the BSD-2-Clause notice from:
+https://github.com/leadedge/Spout2/blob/master/LICENSE
+
+Optional FFmpeg download
+------------------------
+The --install-ffmpeg command downloads a pinned SHA-256 archive of the
+win64 LGPL build from BtbN/FFmpeg-Builds. The archive is not embedded in the
+executable. Its license and copying files are retained beside the installed
+binary in %LOCALAPPDATA%\vdj-live-overlay\tools\ffmpeg\licenses.
+https://ffmpeg.org/legal.html
+https://github.com/BtbN/FFmpeg-Builds
+
+Build tools
+-----------
+esbuild and postject are MIT-licensed build-time dependencies. They are not
+runtime dependencies of the generated executable.
+https://github.com/evanw/esbuild/blob/main/LICENSE.md
+https://github.com/nodejs/postject/blob/main/LICENSE

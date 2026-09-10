@@ -1,0 +1,244 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+  background-color: transparent !important;
+  font-family: "Segoe UI", "Avenir Next", system-ui, sans-serif;
+}
+canvas#c {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  z-index: 1;
+}
+* { user-select: none; box-sizing: border-box; }
+
+.left-stack {
+  position: fixed;
+  left: 2.2vw;
+  bottom: 4.2vh;
+  z-index: 20;
+  width: clamp(220px, 44vw, 440px);
+  max-width: calc(100vw - 4.4vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+}
+.left-stack > .camera-panel,
+.left-stack > .flyout.left {
+  position: relative;
+  inset: auto;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  max-width: none;
+}
+.left-stack > .flyout.left .fly-card { width: 100%; }
+.left-stack > .flyout.left.hidden,
+.camera-panel.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+.left-stack > .flyout.left.hidden,
+.left-stack > .camera-panel.hidden {
+  display: none;
+}
+.camera-panel {
+  opacity: 1;
+}
+.camera-panel.preparing {
+  opacity: 0;
+  visibility: hidden;
+}
+.camera-panel.in { animation: flyIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.camera-panel.out { animation: flyOut 0.4s ease-in both; }
+.camera-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(220, 146, 79, 0.55);
+  border-radius: 0;
+  background: #0a080c;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.camera-frame canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.camera-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(220, 146, 79, 0.18);
+}
+.camera-status {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgba(244, 239, 232, 0.62);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.flyout {
+  position: fixed;
+  bottom: 4.2vh;
+  z-index: 20;
+  pointer-events: none;
+  max-width: min(44vw, 440px);
+  opacity: 1;
+}
+.flyout.left { left: 2.2vw; align-items: flex-start; }
+.flyout.right { right: 2.2vw; }
+.flyout.left,
+.flyout.right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fly-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 10px 10px;
+  background: rgba(10, 8, 12, 0.72);
+  border: 1px solid rgba(220, 146, 79, 0.55);
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.45);
+  color: #f4efe8;
+}
+.flyout.right .fly-card { padding: 10px 10px 10px 16px; }
+
+.fly-card .art {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  overflow: hidden;
+  background: #1a0b08;
+  border: 1px solid rgba(220, 146, 79, 0.5);
+}
+.fly-card .art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+.fly-card .art.has-art img { display: block; }
+.fly-card .art .fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #dc924f;
+  font-size: 18px;
+}
+.fly-card .art.has-art .fallback { display: none; }
+.fly-card .meta { min-width: 0; }
+.fly-card .deck {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: #dc924f;
+  margin-bottom: 3px;
+}
+.fly-card .title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.15;
+  max-width: 280px;
+}
+.fly-card .title-clip {
+  overflow: hidden;
+  width: 280px;
+  max-width: 28vw;
+}
+.fly-card .title-track {
+  display: inline-flex;
+  gap: 48px;
+  white-space: nowrap;
+  will-change: transform;
+}
+.fly-card .title-track .t2 { display: none; }
+.fly-card .title.marquee .title-track {
+  animation: titleMarquee var(--marquee-duration, 8s) linear 1 forwards;
+}
+.fly-card .title.reset .title-track {
+  animation: titleReset 0.55s cubic-bezier(0.22, 1, 0.36, 1) 1 forwards;
+}
+@keyframes titleMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * var(--marquee-distance, 100px))); }
+}
+@keyframes titleReset {
+  from { transform: translateX(calc(-1 * var(--marquee-distance, 100px))); }
+  to { transform: translateX(0); }
+}
+.fly-card .artist {
+  font-size: 13px;
+  opacity: 0.86;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.fly-card .sub {
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(244, 239, 232, 0.7);
+}
+
+.flyout.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+.flyout.left.hidden { transform: translateX(-24px); }
+.flyout.right.hidden { transform: translateX(24px); }
+.flyout.in { animation: flyIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.flyout.out { animation: flyOut 0.4s ease-in both; }
+.flyout.onair .fly-card { border-color: rgba(255, 90, 120, 0.7); }
+.flyout.onair .deck { color: #ff6b86; }
+
+@keyframes flyIn {
+  from { opacity: 0; visibility: visible; transform: translateY(18px); }
+  to { opacity: 1; visibility: visible; transform: translateY(0); }
+}
+@keyframes flyOut {
+  from { opacity: 1; visibility: visible; transform: translateY(0); }
+  to { opacity: 0; visibility: hidden; transform: translateY(14px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fly-card .title.marquee .title-track,
+  .fly-card .title.reset .title-track {
+    animation: none;
+    transform: translateX(0);
+  }
+  .camera-panel.in,
+  .camera-panel.out,
+  .flyout.in,
+  .flyout.out {
+    animation: none;
+  }
+}

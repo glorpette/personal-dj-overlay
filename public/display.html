@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Event Display (sample)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05060a; color: #f4f7ff; font-family: ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+      .stage { position: relative; width: 100%; height: 100%; }
+      iframe.overlay {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        border: 0; background: transparent; pointer-events: none;
+      }
+      .titles {
+        position: absolute; left: 6vw; right: 6vw; bottom: 8vh;
+        z-index: 2; text-shadow: 0 8px 30px #000;
+      }
+      .kicker { letter-spacing: 0.28em; text-transform: uppercase; font-size: 13px; opacity: 0.65; }
+      h1 { margin: 6px 0 0; font-size: clamp(28px, 4.5vw, 64px); font-weight: 700; }
+      .decks { margin-top: 14px; display: flex; gap: 24px; font-size: 15px; opacity: 0.8; }
+      .on { color: #19f3ff; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <iframe class="overlay" src="/overlay?align=center" allowtransparency="true"></iframe>
+      <div class="titles">
+        <div class="kicker">Now playing</div>
+        <h1 id="master">Waiting for VirtualDJ…</h1>
+        <div class="decks">
+          <div id="d1">Deck 1 —</div>
+          <div id="d2">Deck 2 —</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      async function tick() {
+        try {
+          const s = await fetch("/api/nowplaying").then((r) => r.json());
+          document.getElementById("master").textContent = s.masterTitle || s.deck1.artistTitle || "—";
+          document.getElementById("d1").textContent = `Deck 1 — ${s.deck1.artistTitle || "empty"}`;
+          document.getElementById("d2").textContent = `Deck 2 — ${s.deck2.artistTitle || "empty"}`;
+          document.getElementById("d1").className = s.onAirDeck === 1 ? "on" : "";
+          document.getElementById("d2").className = s.onAirDeck === 2 ? "on" : "";
+        } catch {}
+      }
+      tick();
+      setInterval(tick, 800);
+    </script>
+  </body>
+</html>

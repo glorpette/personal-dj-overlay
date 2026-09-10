@@ -1,0 +1,26 @@
+{
+  "name": "vdj-live-overlay",
+  "version": "1.0.0",
+  "description": "Transparent 3D waveform overlay + VirtualDJ now-playing writer for live booth PCs",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "devices": "node src/cli-devices.ts",
+    "check": "node src/cli-check.ts",
+    "start:tsx": "npx tsx src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
