@@ -46,6 +46,7 @@
     "cameraPitch": 0.22,
     "logoSpin": 0.35,
     "snap": 0.35,
-    "snapAuto": true
+    "snapAuto": true,
+    "cubeFrame": false
   }
 }

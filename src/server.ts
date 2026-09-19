@@ -349,7 +349,7 @@ function validateConfig(cfg: AppConfig): string | null {
   }
   if (typeof cfg.visual.preset !== "string" || typeof cfg.visual.palette !== "string"
     || typeof cfg.visual.alignment !== "string" || typeof cfg.visual.bloom !== "boolean"
-    || typeof cfg.visual.snapAuto !== "boolean") {
+    || typeof cfg.visual.snapAuto !== "boolean" || typeof cfg.visual.cubeFrame !== "boolean") {
     return "visual settings are invalid";
   }
   if (typeof cfg.nowPlaying?.txtPath !== "string" || typeof cfg.nowPlaying?.jsonPath !== "string") {

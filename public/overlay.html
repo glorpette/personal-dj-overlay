@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VDJ Waveform Overlay</title>
-    <link rel="stylesheet" href="/css/overlay.css?v=20260909-live" />
+    <link rel="stylesheet" href="/css/overlay.css?v=20260918-static-bpm" />
   </head>
   <body>
     <canvas id="c"></canvas>
@@ -31,7 +31,11 @@
               </div>
             </div>
             <div class="artist"></div>
-            <div class="sub"></div>
+            <div class="sub">
+              <span class="sub-bpm" hidden></span>
+              <span class="sub-divider" aria-hidden="true" hidden> · </span>
+              <span class="sub-clip" hidden><span class="sub-track"></span></span>
+            </div>
           </div>
         </div>
       </aside>
@@ -47,7 +51,11 @@
             </div>
           </div>
           <div class="artist"></div>
-          <div class="sub"></div>
+          <div class="sub">
+            <span class="sub-bpm" hidden></span>
+            <span class="sub-divider" aria-hidden="true" hidden> · </span>
+            <span class="sub-clip" hidden><span class="sub-track"></span></span>
+          </div>
         </div>
         <div class="art">
           <img alt="" />
@@ -64,6 +72,6 @@
         }
       }
     </script>
-    <script type="module" src="/js/overlay.js?v=20260909-live"></script>
+    <script type="module" src="/js/overlay.js?v=20260918-cube-bars"></script>
   </body>
 </html>

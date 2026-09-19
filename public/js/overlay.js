@@ -3,6 +3,7 @@ import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
 
 const canvas = document.getElementById("c");
 const params = new URLSearchParams(location.search);
+const cubeFrameOverride = params.has("cubeframe") ? params.get("cubeframe") !== "0" : null;
 
 const visual = {
   preset: params.get("preset") || "helix",
@@ -17,6 +18,7 @@ const visual = {
   logoSpin: num(params.get("logospin"), 0.35),
   snap: num(params.get("snap"), 0.35),
   snapAuto: params.get("snapauto") !== "0",
+  cubeFrame: cubeFrameOverride ?? false,
 };
 
 const PALETTES = {
@@ -29,7 +31,7 @@ const PALETTES = {
 
 let audioSensitivity = 1.15;
 
-const PRESETS = ["helix", "ribbon", "wings", "tunnel", "burst", "cube"];
+const PRESETS = ["helix", "ribbon", "wings", "tunnel", "burst", "cube", "mirrored-bars"];
 
 function emptyFrame() {
   return {
@@ -94,7 +96,10 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: "high-performance",
 });
 renderer.setClearColor(0x000000, 0);
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.15));
+// Keep the main overlay at native CSS resolution. The renderer still uses
+// MSAA, while avoiding the quadratic fill-rate cost of high-DPI browser
+// sources (especially when OBS scales the canvas again).
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.0));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.autoClear = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -129,6 +134,7 @@ let spoutScene = null;
 let spoutCamera = null;
 let spoutTexture = null;
 let spoutMesh = null;
+let spoutNeedsRender = false;
 
 function setSpoutStatus(text) {
   if (spoutWebglFailed && text !== "DISABLED") text = "WEBGL ERROR";
@@ -146,7 +152,7 @@ function initSpoutView() {
       powerPreference: "low-power",
     });
     spoutRenderer.setClearColor(0x0a080c, 1);
-    spoutRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    spoutRenderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.0));
 
     spoutScene = new THREE.Scene();
     spoutCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
@@ -183,6 +189,7 @@ function resizeSpoutView() {
   const width = Math.max(1, Math.round(rect.width));
   const height = Math.max(1, Math.round(rect.height));
   spoutRenderer.setSize(width, height, false);
+  spoutNeedsRender = true;
 }
 
 function clearSpoutFrames() {
@@ -198,6 +205,7 @@ function clearSpoutFrames() {
     spoutTexture.image = null;
     spoutTexture.needsUpdate = true;
   }
+  spoutNeedsRender = true;
 }
 
 function releaseSpoutFrame(frame) {
@@ -311,10 +319,11 @@ async function decodeSpoutFrames() {
           releaseSpoutFrame(frame);
           break;
         }
-        releaseSpoutFrame(spoutPendingFrame);
-         spoutPendingFrame = frame;
-         spoutLastFrameAt = performance.now();
-         spoutStale = false;
+         releaseSpoutFrame(spoutPendingFrame);
+          spoutPendingFrame = frame;
+          spoutLastFrameAt = performance.now();
+          spoutStale = false;
+          spoutNeedsRender = true;
       } catch (err) {
         console.warn("Spout JPEG decode failed", err);
         setSpoutStatus("DECODE ERROR");
@@ -365,6 +374,7 @@ function renderSpout() {
     spoutTexture.needsUpdate = true;
     spoutMesh.visible = true;
     submitted = true;
+    spoutNeedsRender = true;
     releaseSpoutFrame(old);
   }
   if (spoutLastFrameAt && performance.now() - spoutLastFrameAt > SPOUT_STALE_MS) {
@@ -373,8 +383,10 @@ function renderSpout() {
       setSpoutStatus("STALE");
     }
   }
+  if (!spoutNeedsRender) return;
   try {
     spoutRenderer.render(spoutScene, spoutCamera);
+    spoutNeedsRender = false;
     if (submitted) {
       setSpoutStatus("CLUB CAM");
       revealSpoutPanel(spoutGeneration);
@@ -419,9 +431,17 @@ function connectSpout() {
 const group = new THREE.Group();
 const waveGroup = new THREE.Group();
 const logoGroup = new THREE.Group();
+const snapGroup = new THREE.Group();
 scene.add(group);
 group.add(waveGroup);
 group.add(logoGroup);
+group.add(snapGroup);
+// Keep the visual layers deterministic: waveform bars first, optional cube
+// frame next, logo above it, and beat-reactive snap particles above both.
+// Atmosphere remains scene-level.
+waveGroup.renderOrder = 1;
+logoGroup.renderOrder = 3;
+snapGroup.renderOrder = 4;
 
 // These lights only affect the logo's physical side materials. The rest of the
 // overlay intentionally stays unlit so its existing additive colors do not change.
@@ -436,6 +456,19 @@ scene.add(logoAmbient, logoKey, logoRim);
 
 const BAR = 64;
 const WAVE = 128;
+const MIRROR_BAR_COUNT = 96;
+const MIRROR_HALF_COUNT = MIRROR_BAR_COUNT / 2;
+const CUBE_CORNERS = [
+  [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1],
+  [-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
+];
+const mirrorBarHeights = new Float32Array(MIRROR_HALF_COUNT);
+const mirrorBarTargets = new Float32Array(MIRROR_HALF_COUNT);
+let mirroredBassPulse = 0;
+let mirroredBassPrevious = 0;
+let mirroredBarMeshes = [];
+let activeCubeVisual = null;
+let cubeFrameOverlay = null;
 let meshes = [];
 let presetName = "";
 
@@ -446,6 +479,9 @@ const snapVel = new Float32Array(SNAP_N * 3);
 const snapCol = new Float32Array(SNAP_N * 3);
 const snapLife = new Float32Array(SNAP_N);
 let snapCount = 0;
+let snapPreviousCount = 0;
+let snapDrawCount = -1;
+let snapColorDirty = true;
 let snapBurst = 0;
 let snapNext = 5;
 let snapLastPeak = 0;
@@ -490,25 +526,35 @@ function makeSnapSystem() {
   snapPoints = new THREE.Points(geo, mat);
   snapPoints.frustumCulled = false;
   snapPoints.renderOrder = 4;
-  group.add(snapPoints);
+  snapGroup.add(snapPoints);
 }
 
 function beginSamples() {
+  snapPreviousCount = snapCount;
   snapCount = 0;
 }
 
 function pushSample(x, y, z, energy) {
   if (snapCount >= SNAP_N) return;
   const i = snapCount * 3;
+  const wasLive = snapCount < snapPreviousCount;
   snapHome[i] = x;
   snapHome[i + 1] = y;
   snapHome[i + 2] = z;
+  if (!wasLive) {
+    // Newly activated points should start at their sample instead of waking
+    // from a stale location left by a previous preset.
+    snapPos[i] = x;
+    snapPos[i + 1] = y;
+    snapPos[i + 2] = z;
+  }
   const c = col(snapCount);
   const k = 0.55 + Math.min(1, energy || 0) * 0.45;
   snapCol[i] = c.r * k;
   snapCol[i + 1] = c.g * k;
   snapCol[i + 2] = c.b * k;
   snapCount++;
+  snapColorDirty = true;
 }
 
 function triggerSnapBurst() {
@@ -538,12 +584,11 @@ function updateSnap(dt, t) {
   const wr = waveGroup.rotation.y;
   const cr = Math.cos(wr);
   const sr = Math.sin(wr);
-  for (let i = 0; i < SNAP_N; i++) {
+  for (let i = 0; i < snapCount; i++) {
     const i3 = i * 3;
-    const live = i < snapCount;
-    let hx = live ? snapHome[i3] : 0;
-    let hy = live ? snapHome[i3 + 1] : 0;
-    let hz = live ? snapHome[i3 + 2] : 0;
+    const hx = snapHome[i3];
+    const hy = snapHome[i3 + 1];
+    const hz = snapHome[i3 + 2];
     const x = hx * cr + hz * sr;
     const z = -hx * sr + hz * cr;
     if (snapBurst > 0.02) {
@@ -560,19 +605,23 @@ function updateSnap(dt, t) {
       snapPos[i3 + 1] += (hy - snapPos[i3 + 1]) * Math.min(1, dt * 8);
       snapPos[i3 + 2] += (z - snapPos[i3 + 2]) * Math.min(1, dt * 8);
     }
-    if (!live) {
-      snapPos[i3] = snapPos[i3 + 1] = snapPos[i3 + 2] = 0;
-    }
   }
-  snapPoints.geometry.setDrawRange(0, snapCount);
-  snapPoints.geometry.attributes.position.needsUpdate = true;
-  snapPoints.geometry.attributes.color.needsUpdate = true;
+  if (snapDrawCount !== snapCount) {
+    snapPoints.geometry.setDrawRange(0, snapCount);
+    snapDrawCount = snapCount;
+  }
+  if (snapCount > 0) snapPoints.geometry.attributes.position.needsUpdate = true;
+  if (snapColorDirty) {
+    snapPoints.geometry.attributes.color.needsUpdate = true;
+    snapColorDirty = false;
+  }
   const fade = Math.max(amount, snapBurst * 0.85);
   snapPoints.material.opacity = 0.25 + fade * 0.75;
   snapPoints.material.size = 0.04 + audio.peak * 0.05 + snapBurst * 0.06;
   snapPoints.visible = fade > 0.03 || snapBurst > 0.02;
   const meshFade = 1 - Math.min(0.92, amount * 0.75 + snapBurst * 0.55);
   for (const m of meshes) {
+    if (m.userData.keepFullOpacity) continue;
     const mats = Array.isArray(m.material) ? m.material : [m.material];
     for (const mat of mats) {
       if (!mat) continue;
@@ -687,6 +736,11 @@ function logoSideMaterial(color, emissive) {
     metalness: 0.78,
     roughness: 0.26,
     side: THREE.DoubleSide,
+    // Keep the extruded logo in the same transparent render queue as the
+    // bars. Opaque side materials would always render before transparent bars
+    // when the logo rotates, regardless of renderOrder.
+    transparent: true,
+    opacity: 1,
     depthWrite: true,
     depthTest: true,
   });
@@ -711,6 +765,9 @@ function loadLogo() {
 
   loader.load("/img/unc-logo.svg", (data) => {
     const solid = new THREE.Group();
+    // Every nested group must carry the logo layer order. Three.js replaces
+    // the inherited group order when it visits a child Group.
+    solid.renderOrder = 3;
     const face = logoFaceMaterial(logoTexture);
     const goldSide = logoSideMaterial(0x7e260b, 0x2c0800);
     const emberSide = logoSideMaterial(0x2d0705, 0x170000);
@@ -739,6 +796,7 @@ function loadLogo() {
         // The red inset is layered just ahead of the gold outline to avoid
         // coplanar cap z-fighting while preserving the SVG's two-color shape.
         if (!isGold) mesh.position.z = 0.12;
+        mesh.renderOrder = 3;
         solid.add(mesh);
       }
     }
@@ -768,7 +826,7 @@ function loadLogo() {
     logoMesh.userData.face = face;
     logoMesh.userData.goldSide = goldSide;
     logoMesh.userData.emberSide = emberSide;
-    logoMesh.renderOrder = 2;
+    logoMesh.renderOrder = 3;
     logoGroup.add(logoMesh);
     logoReady = true;
     layoutLogo();
@@ -787,12 +845,19 @@ function layoutLogo() {
   else if (presetName === "tunnel") { s = 0.74; z = 0; }
   else if (presetName === "burst") { s = 0.82; z = 0.1; }
   else if (presetName === "cube") { s = 0.72; z = 0; }
+  else if (presetName === "mirrored-bars") { s = 0.72; z = 0.14; }
   const base = logoMesh.userData.baseScale || 1;
   logoMesh.scale.setScalar(base * s);
   logoMesh.position.set(0, 0, z);
+  if (cubeFrameOverlay?.group) cubeFrameOverlay.group.position.set(0, 0, z);
 }
 
 function clearPreset() {
+  if (cubeFrameOverlay) {
+    waveGroup.remove(cubeFrameOverlay.group);
+    disposeCubeVisual(cubeFrameOverlay);
+    cubeFrameOverlay = null;
+  }
   for (const m of meshes) {
     waveGroup.remove(m);
     m.geometry?.dispose?.();
@@ -800,6 +865,8 @@ function clearPreset() {
     else m.material?.dispose?.();
   }
   meshes = [];
+  mirroredBarMeshes = [];
+  activeCubeVisual = null;
 }
 
 function add(obj) {
@@ -863,37 +930,267 @@ function buildBurst() {
   add(inst);
 }
 
-function buildCube() {
+function createCubeVisual(includeCorners) {
   const geo = new THREE.BoxGeometry(1.55, 1.55, 1.55, 8, 8, 8);
   geo.userData.base = Float32Array.from(geo.attributes.position.array);
   const cubeMat = glowMat(col(0), 0.32);
   cubeMat.depthWrite = false;
   cubeMat.depthTest = true;
   const mesh = new THREE.Mesh(geo, cubeMat);
-  add(mesh);
+  mesh.renderOrder = 1;
+
+  const frameBox = new THREE.BoxGeometry(1.55, 1.55, 1.55);
   const frameMat = lineMat(col(1), 1);
   frameMat.depthTest = true;
-  frameMat.depthWrite = false;
+  // The cube must contribute to the depth buffer before the logo is drawn.
+  // This lets front edges occlude the logo while rear edges remain hidden by
+  // the logo's own depth, producing a real 3D intersection instead of a
+  // flat always-on-top overlay.
+  frameMat.depthWrite = true;
   frameMat.opacity = 1;
   const frame = new THREE.LineSegments(
-    new THREE.WireframeGeometry(new THREE.BoxGeometry(1.55, 1.55, 1.55)),
+    new THREE.WireframeGeometry(frameBox),
     frameMat,
   );
-  frame.renderOrder = 1;
-  add(frame);
-  const cornerMat = glowMat(col(2), 1);
-  cornerMat.depthTest = true;
-  cornerMat.depthWrite = false;
+  frameBox.dispose();
+  frame.renderOrder = 2;
+
+  let corners = null;
+  if (includeCorners) {
+    const cornerMat = glowMat(col(2), 1);
+    cornerMat.depthTest = true;
+    cornerMat.depthWrite = false;
+    corners = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.13, 0.13, 0.13),
+      cornerMat,
+      8,
+    );
+    corners.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    corners.userData.dummy = new THREE.Object3D();
+    corners.userData.corner = new THREE.Vector3();
+    corners.renderOrder = 2;
+  }
+
+  return { mesh, frame, corners };
+}
+
+function disposeCubeVisual(cube) {
+  cube.mesh.geometry.dispose();
+  cube.mesh.material?.dispose?.();
+  cube.frame.geometry.dispose();
+  cube.frame.material?.dispose?.();
+  cube.corners?.geometry?.dispose?.();
+  cube.corners?.material?.dispose?.();
+}
+
+function buildCube() {
+  activeCubeVisual = createCubeVisual(true);
+  add(activeCubeVisual.mesh);
+  add(activeCubeVisual.frame);
+  activeCubeVisual.frame.renderOrder = 2;
+  add(activeCubeVisual.corners);
+  activeCubeVisual.corners.renderOrder = 2;
+}
+
+function buildCubeFrame() {
+  // This is the same Bass Cube visual, deliberately without its eight corner
+  // blocks. Keep the cube volume and wireframe materials identical to the
+  // selectable cube preset so the standalone toggle cannot drift visually.
+  cubeFrameOverlay = createCubeVisual(false);
+  cubeFrameOverlay.group = new THREE.Group();
+  cubeFrameOverlay.group.renderOrder = 2;
+  cubeFrameOverlay.group.frustumCulled = false;
+  cubeFrameOverlay.group.add(cubeFrameOverlay.mesh, cubeFrameOverlay.frame);
+  waveGroup.add(cubeFrameOverlay.group);
+}
+
+const MIRRORED_BAR_VERTEX_SHADER = `
+attribute float instanceBarExtension;
+attribute float instanceBarEnergy;
+attribute vec3 instanceBarColor;
+
+varying vec3 vBarColor;
+varying float vBarEnergy;
+varying float vBarY;
+
+void main() {
+  // CapsuleGeometry is two radii tall at rest. Only vertices on the rounded
+  // cap arcs move, so the cap radius never changes as the center grows.
+  vec3 transformed = position;
+  float capVertex = step(0.499, abs(position.y));
+  transformed.y += sign(position.y) * capVertex * instanceBarExtension * 0.5;
+
+  vBarColor = instanceBarColor;
+  vBarEnergy = instanceBarEnergy;
+  vBarY = clamp(position.y * 0.5 + 0.5, 0.0, 1.0);
+
+  vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(transformed, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+}
+`;
+
+const MIRRORED_BAR_FRAGMENT_SHADER = `
+uniform float uOpacity;
+uniform float uImpact;
+
+varying vec3 vBarColor;
+varying float vBarEnergy;
+varying float vBarY;
+
+void main() {
+  float activity = clamp(vBarEnergy * 0.82 + uImpact * 0.72, 0.0, 1.0);
+  float centerLight = 1.0 - abs(vBarY * 2.0 - 1.0);
+  // Brighten the selected profile without mixing in white. This preserves
+  // the hue stops at the edges, mids, and center during loud hits.
+  float brightness = 0.66 + activity * 0.36 + centerLight * 0.06;
+  vec3 litColor = min(vBarColor * brightness, vec3(0.98));
+  float alpha = clamp(uOpacity * (0.58 + vBarEnergy * 0.20 + uImpact * 0.12), 0.16, 0.78);
+  gl_FragColor = vec4(litColor, alpha);
+  #include <colorspace_fragment>
+}
+`;
+
+const MIRRORED_BAR_GLOW_FRAGMENT_SHADER = `
+uniform float uOpacity;
+uniform float uImpact;
+
+varying vec3 vBarColor;
+varying float vBarEnergy;
+varying float vBarY;
+
+void main() {
+  float activity = clamp(vBarEnergy * 0.9 + uImpact, 0.0, 1.0);
+  float centerLight = 1.0 - abs(vBarY * 2.0 - 1.0);
+  vec3 glowColor = min(vBarColor * (0.62 + activity * 0.88 + centerLight * 0.08), vec3(0.98));
+  float alpha = clamp(uOpacity * (0.20 + activity * 0.30), 0.0, 0.28);
+  gl_FragColor = vec4(glowColor, alpha);
+  #include <colorspace_fragment>
+}
+`;
+
+const MIRRORED_BAR_SHADOW_FRAGMENT_SHADER = `
+uniform float uOpacity;
+
+varying vec3 vBarColor;
+varying float vBarEnergy;
+varying float vBarY;
+
+void main() {
+  float edgeWeight = 0.9 + (1.0 - abs(vBarY * 2.0 - 1.0)) * 0.1;
+  float alpha = uOpacity * (0.62 + vBarEnergy * 0.2) * edgeWeight;
+  gl_FragColor = vec4(0.008, 0.004, 0.018, alpha);
+  #include <colorspace_fragment>
+}
+`;
+
+function makeMirroredBarMaterial(glow = false) {
+  return new THREE.ShaderMaterial({
+    name: glow ? "MirroredBarGlowMaterial" : "MirroredBarMaterial",
+    uniforms: {
+      uOpacity: { value: glow ? 0.08 : 0.64 },
+      uImpact: { value: 0 },
+    },
+    vertexShader: MIRRORED_BAR_VERTEX_SHADER,
+    fragmentShader: glow ? MIRRORED_BAR_GLOW_FRAGMENT_SHADER : MIRRORED_BAR_FRAGMENT_SHADER,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: glow && visual.bloom ? THREE.AdditiveBlending : THREE.NormalBlending,
+    toneMapped: false,
+  });
+}
+
+function makeMirroredBarShadowMaterial() {
+  return new THREE.ShaderMaterial({
+    name: "MirroredBarShadowMaterial",
+    uniforms: {
+      uOpacity: { value: 0.22 },
+    },
+    vertexShader: MIRRORED_BAR_VERTEX_SHADER,
+    fragmentShader: MIRRORED_BAR_SHADOW_FRAGMENT_SHADER,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.NormalBlending,
+    toneMapped: false,
+  });
+}
+
+function makeMirroredBarAttribute(itemSize) {
+  return new THREE.InstancedBufferAttribute(
+    new Float32Array(MIRROR_BAR_COUNT * itemSize),
+    itemSize,
+  ).setUsage(THREE.DynamicDrawUsage);
+}
+
+function buildMirroredBars() {
+  // Keep the capsule mesh shared between the solid and halo passes. The
+  // instance attributes carry only the data that changes per bar per frame.
+  const geometry = new THREE.CapsuleGeometry(0.5, 1, 6, 12);
+  const glowGeometry = geometry.clone();
+  const attributes = [
+    [geometry, "instanceBarExtension", makeMirroredBarAttribute(1)],
+    [geometry, "instanceBarEnergy", makeMirroredBarAttribute(1)],
+    [geometry, "instanceBarColor", makeMirroredBarAttribute(3)],
+    [glowGeometry, "instanceBarExtension", makeMirroredBarAttribute(1)],
+    [glowGeometry, "instanceBarEnergy", makeMirroredBarAttribute(1)],
+    [glowGeometry, "instanceBarColor", makeMirroredBarAttribute(3)],
+  ];
+  for (const [geo, name, attribute] of attributes) geo.setAttribute(name, attribute);
+  const shadowGeometry = geometry.clone();
+  for (const name of ["instanceBarExtension", "instanceBarEnergy", "instanceBarColor"]) {
+    shadowGeometry.setAttribute(name, geometry.getAttribute(name));
+  }
+
   const inst = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(0.13, 0.13, 0.13),
-    cornerMat,
-    8,
+    geometry,
+    makeMirroredBarMaterial(false),
+    MIRROR_BAR_COUNT,
   );
-  inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  inst.userData.dummy = new THREE.Object3D();
-  inst.userData.corner = new THREE.Vector3();
-  inst.renderOrder = 1;
+  const glow = new THREE.InstancedMesh(
+    glowGeometry,
+    makeMirroredBarMaterial(true),
+    MIRROR_BAR_COUNT,
+  );
+  const shadow = new THREE.InstancedMesh(
+    shadowGeometry,
+    makeMirroredBarShadowMaterial(),
+    MIRROR_BAR_COUNT,
+  );
+  // The shadow follows the exact same animated instance transforms as the
+  // bars; only its object offset and material differ.
+  shadow.instanceMatrix = inst.instanceMatrix;
+  shadow.position.set(0.045, -0.055, -0.12);
+  shadow.frustumCulled = false;
+  shadow.userData.keepFullOpacity = true;
+  for (const mesh of [inst, glow]) {
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false;
+    mesh.userData.dummy = new THREE.Object3D();
+    mesh.userData.layoutKey = "";
+    mesh.userData.paletteKey = "";
+    mesh.userData.layout = { span: 0, cell: 0, width: 0, depth: 0 };
+    mesh.userData.colorScratch = new THREE.Color();
+    mesh.userData.keepFullOpacity = true;
+    mesh.userData.extensionAttribute = mesh.geometry.getAttribute("instanceBarExtension");
+    mesh.userData.energyAttribute = mesh.geometry.getAttribute("instanceBarEnergy");
+    mesh.userData.colorAttribute = mesh.geometry.getAttribute("instanceBarColor");
+  }
+  inst.userData.barScale = 1;
+  glow.userData.barScale = 1.30;
   add(inst);
+  add(glow);
+  add(shadow);
+  inst.renderOrder = 1;
+  glow.renderOrder = 1;
+  shadow.renderOrder = 0;
+  mirroredBarMeshes = [inst, glow];
+  mirrorBarHeights.fill(0.06);
+  mirrorBarTargets.fill(0.06);
+  mirroredBassPulse = 0;
+  mirroredBassPrevious = audio.bass;
 }
 
 function rebuild() {
@@ -905,7 +1202,10 @@ function rebuild() {
   else if (presetName === "wings") buildWings();
   else if (presetName === "tunnel") buildTunnel();
   else if (presetName === "burst") buildBurst();
-  else buildCube();
+  else if (presetName === "cube") buildCube();
+  else buildMirroredBars();
+  if (visual.cubeFrame && presetName !== "cube") buildCubeFrame();
+  if (presetName === "mirrored-bars") waveGroup.rotation.set(0, 0, 0);
   layoutLogo();
 }
 
@@ -914,6 +1214,18 @@ function applyAlignment(w, h) {
   group.scale.setScalar(visual.scale);
   group.position.set(0, 0, 0);
   camera.fov = 42;
+
+  // The mirrored bars are a deliberately flat, screen-spanning preset. Keep
+  // the camera square to the bar plane so the two halves stay symmetrical and
+  // the center logo remains the visual anchor.
+  if (presetName === "mirrored-bars") {
+    camera.position.set(0, 0, 6);
+    camera.lookAt(0, 0, 0);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   const yaw = visual.cameraYaw;
   const pitch = visual.cameraPitch;
   if (visual.alignment === "bottom") {
@@ -1042,14 +1354,159 @@ function updateBurst(t) {
   inst.instanceMatrix.needsUpdate = true;
 }
 
+function mirrorViewWidth() {
+  const distance = Math.max(0.1, camera.position.z - group.position.z);
+  const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
+  return viewHeight * Math.max(0.1, camera.aspect);
+}
+
+function sampleSpectrum(position) {
+  const bins = audio.bins;
+  if (!bins.length) return 0;
+  const max = bins.length - 1;
+  const p = THREE.MathUtils.clamp(position, 0, max);
+  const i1 = Math.floor(p);
+  const t = p - i1;
+  const i0 = Math.max(0, i1 - 1);
+  const i2 = Math.min(max, i1 + 1);
+  const i3 = Math.min(max, i1 + 2);
+  const p0 = bins[i0] || 0;
+  const p1 = bins[i1] || 0;
+  const p2 = bins[i2] || 0;
+  const p3 = bins[i3] || 0;
+  // Catmull-Rom interpolation removes the stair-step contour that appears
+  // when 64 FFT bins are spread across a wider instanced bar field.
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const value = 0.5 * (
+    (2 * p1) +
+    (-p0 + p2) * t +
+    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+  );
+  return THREE.MathUtils.clamp(value, 0, 1);
+}
+
+function updateMirroredBarLayout(inst) {
+  const key = `${innerWidth}x${innerHeight}:${visual.scale}:${camera.aspect}:${camera.fov}`;
+  if (inst.userData.layoutKey === key) return;
+  const span = (mirrorViewWidth() * 1.04) / Math.max(0.1, visual.scale);
+  const cell = span / MIRROR_BAR_COUNT;
+  inst.userData.layout = {
+    span,
+    cell,
+    width: Math.max(0.008, cell * 0.66),
+    depth: 0.08,
+  };
+  inst.userData.layoutKey = key;
+}
+
+function updateMirroredBarColors() {
+  if (!mirroredBarMeshes.length) return;
+  if (mirroredBarMeshes.every((mesh) => mesh.userData.paletteKey === visual.palette)) return;
+  const last = 2;
+  col(0);
+  col(1);
+  col(2);
+  for (const mesh of mirroredBarMeshes) {
+    const scratch = mesh.userData.colorScratch;
+    const colorAttribute = mesh.userData.colorAttribute;
+    for (let i = 0; i < MIRROR_HALF_COUNT; i++) {
+      const t = i / Math.max(1, MIRROR_HALF_COUNT - 1);
+      const scaled = t * last;
+      const segment = Math.min(last - 1, Math.floor(scaled));
+      scratch.copy(col(segment)).lerp(col(segment + 1), scaled - segment);
+      scratch.toArray(colorAttribute.array, i * 3);
+      scratch.toArray(colorAttribute.array, (MIRROR_BAR_COUNT - 1 - i) * 3);
+    }
+    colorAttribute.needsUpdate = true;
+    mesh.userData.paletteKey = visual.palette;
+  }
+}
+
+function updateMirroredBars(dt) {
+  beginSamples();
+  const inst = mirroredBarMeshes[0];
+  if (!inst) return;
+  updateMirroredBarLayout(inst);
+  updateMirroredBarColors();
+
+  const layout = inst.userData.layout;
+  const up = 1 - Math.exp(-dt / 0.045);
+  const down = 1 - Math.exp(-dt / 0.12);
+  const maxHeight = 1.28 + audio.bass * 0.42 + audio.peak * 0.14;
+  const bassRise = Math.max(0, audio.bass - mirroredBassPrevious);
+  mirroredBassPrevious = audio.bass;
+  const pulseTarget = Math.min(1, audio.bass * 0.24 + bassRise * 4.8 + audio.peak * 0.08);
+  mirroredBassPulse = Math.max(
+    pulseTarget,
+    mirroredBassPulse * Math.exp(-dt / 0.18),
+  );
+  const impact = THREE.MathUtils.clamp(
+    audio.rms * 0.58 + audio.bass * 0.84 + audio.peak * 0.3 + mirroredBassPulse * 0.62,
+    0,
+    1,
+  );
+
+  for (let outer = 0; outer < MIRROR_HALF_COUNT; outer++) {
+    const frequency = outer / Math.max(1, MIRROR_HALF_COUNT - 1);
+    const energy = sampleSpectrum(frequency * (audio.bins.length - 1));
+    const shaped = Math.pow(energy, 0.82);
+    const nextHeight = 0.055 + shaped * maxHeight + audio.rms * 0.06;
+    mirrorBarTargets[outer] = nextHeight;
+    const rate = nextHeight > mirrorBarHeights[outer] ? up : down;
+    const height = mirrorBarHeights[outer] = follow(mirrorBarHeights[outer], nextHeight, rate, rate);
+    const actualHeight = Math.max(height, layout.width * 2);
+    const leftIndex = outer;
+    const rightIndex = MIRROR_BAR_COUNT - 1 - outer;
+    const leftX = -layout.span * 0.5 + layout.cell * (leftIndex + 0.5);
+    const rightX = -layout.span * 0.5 + layout.cell * (rightIndex + 0.5);
+
+    for (const mesh of mirroredBarMeshes) {
+      const dummy = mesh.userData.dummy;
+      const barScale = mesh.userData.barScale;
+      const width = layout.width * barScale;
+      const extension = Math.max(0, actualHeight / width - 2);
+      const extensionAttribute = mesh.userData.extensionAttribute;
+      const energyAttribute = mesh.userData.energyAttribute;
+      extensionAttribute.array[leftIndex] = extension;
+      extensionAttribute.array[rightIndex] = extension;
+      energyAttribute.array[leftIndex] = energy;
+      energyAttribute.array[rightIndex] = energy;
+
+      dummy.position.set(leftX, 0, -0.06);
+      dummy.scale.set(width, width, layout.depth * barScale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(leftIndex, dummy.matrix);
+
+      dummy.position.set(rightX, 0, -0.06);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(rightIndex, dummy.matrix);
+    }
+  }
+  for (const mesh of mirroredBarMeshes) mesh.instanceMatrix.needsUpdate = true;
+  for (const mesh of mirroredBarMeshes) mesh.userData.extensionAttribute.needsUpdate = true;
+  for (const mesh of mirroredBarMeshes) mesh.userData.energyAttribute.needsUpdate = true;
+  const main = mirroredBarMeshes[0];
+  const glow = mirroredBarMeshes[1];
+  main.material.uniforms.uOpacity.value = 0.64 + impact * 0.16;
+  main.material.uniforms.uImpact.value = impact;
+  glow.material.uniforms.uOpacity.value = 0.08 + impact * 0.30;
+  glow.material.uniforms.uImpact.value = impact;
+  const glowBlending = visual.bloom ? THREE.AdditiveBlending : THREE.NormalBlending;
+  if (glow.material.blending !== glowBlending) {
+    glow.material.blending = glowBlending;
+    glow.material.needsUpdate = true;
+  }
+}
+
 function easeCubic(x) {
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 }
 
 
-function updateCube(t) {
-  beginSamples();
-  const mesh = meshes[0];
+function animateCubeVisual(cube, t, emitSamples) {
+  const mesh = cube.mesh;
   const pos = mesh.geometry.attributes.position;
   const base = mesh.geometry.userData.base;
   const s = 0.88 + audio.rms * 0.28 + audio.bass * 0.22;
@@ -1066,7 +1523,7 @@ function updateCube(t) {
     pos.array[ix] = x;
     pos.array[ix + 1] = y;
     pos.array[ix + 2] = z;
-    if (i % 8 === 0) pushSample(x * s, y * s, z * s, bin);
+    if (emitSamples && i % 8 === 0) pushSample(x * s, y * s, z * s, bin);
   }
   pos.needsUpdate = true;
   mesh.scale.setScalar(s);
@@ -1074,21 +1531,18 @@ function updateCube(t) {
   mesh.rotation.z = t * 0.11;
   mesh.material.color.lerpColors(col(0), col(1), audio.peak);
 
-  meshes[1].scale.setScalar(s * 1.02);
-  meshes[1].rotation.copy(mesh.rotation);
-  meshes[1].material.color.copy(col(1));
-  meshes[1].material.opacity = 0.95;
+  cube.frame.scale.setScalar(s * 1.02);
+  cube.frame.rotation.copy(mesh.rotation);
+  cube.frame.material.color.copy(col(1));
+  cube.frame.material.opacity = emitSamples ? 0.95 : 0.86;
 
-  const inst = meshes[2];
+  const inst = cube.corners;
+  if (!inst) return;
   const dummy = inst.userData.dummy;
   const tmp = inst.userData.corner;
-  const corners = [
-    [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1],
-    [-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
-  ];
   const reach = 0.775 * s * 1.16;
   for (let i = 0; i < 8; i++) {
-    const c = corners[i];
+    const c = CUBE_CORNERS[i];
     tmp.set(c[0] * reach, c[1] * reach, c[2] * reach);
     tmp.applyEuler(mesh.rotation);
     tmp.x += Math.sin(t * 1.35 + i * 1.1) * 0.11 * s;
@@ -1099,9 +1553,20 @@ function updateCube(t) {
     dummy.rotation.set(t * 1.6 + i, t * 1.1 + i * 0.4, t * 0.7);
     dummy.updateMatrix();
     inst.setMatrixAt(i, dummy.matrix);
-    pushSample(dummy.position.x, dummy.position.y, dummy.position.z, audio.bins[i * 7] || 0);
+    if (emitSamples) {
+      pushSample(dummy.position.x, dummy.position.y, dummy.position.z, audio.bins[i * 7] || 0);
+    }
   }
   inst.instanceMatrix.needsUpdate = true;
+}
+
+function updateCube(t) {
+  beginSamples();
+  if (activeCubeVisual) animateCubeVisual(activeCubeVisual, t, true);
+}
+
+function updateCubeFrame(t) {
+  if (cubeFrameOverlay) animateCubeVisual(cubeFrameOverlay, t, false);
 }
 
 const logoFlip = {
@@ -1214,6 +1679,7 @@ function makeSquiggles() {
     squiggles.push({
       mesh,
       verts,
+      points: new Float32Array(SQUIGGLE_PTS * 3),
       x: 0,
       z: 0,
       phase: 0,
@@ -1258,12 +1724,15 @@ function updateSquiggles(dt) {
     s.life -= dt * 0.48 * s.speed;
     const rise = 1 - Math.max(0, s.life);
     const y0 = -3.6 + rise * 8.4;
-    const pts = [];
+    const pts = s.points;
     for (let i = 0; i < SQUIGGLE_PTS; i++) {
       const u = i / (SQUIGGLE_PTS - 1);
       const y = y0 + u * 2.2;
       const wiggle = (Math.sin(u * 5.2 + s.phase) * 0.7 + Math.sin(u * 9.5 + s.phase * 1.7) * 0.3) * s.amp;
-      pts.push(s.x + wiggle, y, s.z);
+      const ix = i * 3;
+      pts[ix] = s.x + wiggle;
+      pts[ix + 1] = y;
+      pts[ix + 2] = s.z;
     }
     for (let i = 0; i < SQUIGGLE_PTS; i++) {
       const ix = i * 3;
@@ -1324,7 +1793,6 @@ function updateAtmos(dt) {
   atmosPoints.geometry.attributes.position.needsUpdate = true;
   if (atmosPoints.userData.pal !== visual.palette) {
     atmosPoints.userData.pal = visual.palette;
-    const pal = colors();
     const c0 = col(0), c1 = col(1), c2 = col(2);
     const cs = [c0, c1, c2];
     for (let i = 0; i < ATMOS_N; i++) {
@@ -1344,6 +1812,7 @@ function setFly(el, deck, side) {
   const loaded = true;
   const key = `${title}|${artist}`;
   if (el.dataset.key === key) {
+    setDeckFooter(el, deck);
     el.classList.toggle("onair", Boolean(deck && deck.audible));
     const art = el.querySelector(".art");
     if (loaded && art && !art.classList.contains("has-art") && deck.coverUrl) {
@@ -1367,11 +1836,7 @@ function setFly(el, deck, side) {
       if (t2) t2.textContent = label;
       requestAnimationFrame(() => applyTitleMarquee(titleEl));
       el.querySelector(".artist").textContent = artist;
-      const bits = [];
-      if (deck && deck.bpm) bits.push(`${Number(deck.bpm).toFixed(1)} BPM`);
-      if (deck && deck.key) bits.push(deck.key);
-      if (deck && deck.album) bits.push(deck.album);
-      el.querySelector(".sub").textContent = bits.join("  ·  ");
+      setDeckFooter(el, deck, true);
       const art = el.querySelector(".art");
       const img = art.querySelector("img");
       if (deck && deck.coverUrl && (title || artist)) {
@@ -1393,6 +1858,104 @@ function setFly(el, deck, side) {
     }, el.classList.contains("hidden") ? 0 : 180);
   }
   el.classList.toggle("onair", Boolean(deck && deck.audible));
+}
+
+function deckFooter(deck) {
+  let bpm = "";
+  if (deck && deck.bpm != null && Number.isFinite(Number(deck.bpm))) {
+    bpm = `${Number(deck.bpm).toFixed(1)} BPM`;
+  }
+  const remix = String(deck?.remix || "").trim();
+  return { bpm, remix };
+}
+
+const MARQUEE_END_PAUSE_MS = 2000;
+const FOOTER_PX_PER_SEC = 34;
+const FOOTER_MARQUEE_PAUSE_MS = 1400;
+const footerMarqueeRuns = new WeakMap();
+const footerMarqueeTimers = new WeakMap();
+
+function setDeckFooter(el, deck, restart = false) {
+  const sub = el.querySelector(".sub");
+  const bpmEl = sub?.querySelector(".sub-bpm");
+  const divider = sub?.querySelector(".sub-divider");
+  const clip = sub?.querySelector(".sub-clip");
+  const track = sub?.querySelector(".sub-track");
+  if (!sub || !bpmEl || !divider || !clip || !track) return;
+  const { bpm, remix } = deckFooter(deck);
+  const bpmChanged = bpmEl.textContent !== bpm;
+  const remixChanged = track.textContent !== remix;
+  const bpmVisibilityChanged = bpmEl.hidden !== !bpm;
+  const remixVisibilityChanged = clip.hidden !== !remix;
+  if (!restart && !bpmChanged && !remixChanged) return;
+  bpmEl.textContent = bpm;
+  bpmEl.hidden = !bpm;
+  divider.hidden = !(bpm && remix);
+  clip.hidden = !remix;
+  track.textContent = remix;
+  if (restart || remixChanged || bpmVisibilityChanged || remixVisibilityChanged) {
+    requestAnimationFrame(() => applyFooterMarquee(sub));
+  }
+}
+
+function applyFooterMarquee(sub) {
+  if (!sub) return;
+  const clip = sub.querySelector(".sub-clip");
+  const track = sub.querySelector(".sub-track");
+  if (!clip || !track) return;
+
+  const oldTimer = footerMarqueeTimers.get(sub);
+  if (oldTimer) clearTimeout(oldTimer);
+  footerMarqueeTimers.delete(sub);
+  const run = (footerMarqueeRuns.get(sub) || 0) + 1;
+  footerMarqueeRuns.set(sub, run);
+  sub.classList.remove("marquee", "reset");
+  track.onanimationend = null;
+  track.style.animation = "none";
+  track.style.transform = "translateX(0)";
+  void track.offsetWidth;
+
+  const need = !clip.hidden && Boolean(track.textContent) && track.scrollWidth > clip.clientWidth + 4;
+  if (!need || reducedMotionQuery?.matches) {
+    sub.style.removeProperty("--footer-marquee-distance");
+    sub.style.removeProperty("--footer-marquee-duration");
+    track.style.animation = "";
+    return;
+  }
+
+  const distance = track.scrollWidth - clip.clientWidth + 16;
+  const duration = Math.max(3, distance / FOOTER_PX_PER_SEC);
+  sub.style.setProperty("--footer-marquee-distance", `${distance}px`);
+  sub.style.setProperty("--footer-marquee-duration", `${duration}s`);
+
+  const restart = () => {
+    if (footerMarqueeRuns.get(sub) !== run) return;
+    footerMarqueeTimers.delete(sub);
+    sub.classList.remove("reset");
+    track.style.animation = "none";
+    track.style.transform = "translateX(0)";
+    void track.offsetWidth;
+    sub.classList.add("marquee");
+    track.style.animation = "";
+  };
+
+  sub.classList.add("marquee");
+  track.style.animation = "";
+  track.onanimationend = (ev) => {
+    if (footerMarqueeRuns.get(sub) !== run) return;
+    if (ev.animationName === "footerMarquee") {
+      footerMarqueeTimers.set(sub, window.setTimeout(() => {
+        if (footerMarqueeRuns.get(sub) !== run) return;
+        footerMarqueeTimers.delete(sub);
+        sub.classList.remove("marquee");
+        sub.classList.add("reset");
+      }, MARQUEE_END_PAUSE_MS));
+    } else if (ev.animationName === "footerReset") {
+      sub.classList.remove("reset");
+      track.style.transform = "translateX(0)";
+      footerMarqueeTimers.set(sub, window.setTimeout(restart, FOOTER_MARQUEE_PAUSE_MS));
+    }
+  };
 }
 
 const TITLE_PX_PER_SEC = 42;
@@ -1446,8 +2009,12 @@ function applyTitleMarquee(titleEl) {
   track.onanimationend = (ev) => {
     if (titleMarqueeRuns.get(titleEl) !== run) return;
     if (ev.animationName === "titleMarquee") {
-      titleEl.classList.remove("marquee");
-      titleEl.classList.add("reset");
+      titleMarqueeTimers.set(titleEl, window.setTimeout(() => {
+        if (titleMarqueeRuns.get(titleEl) !== run) return;
+        titleMarqueeTimers.delete(titleEl);
+        titleEl.classList.remove("marquee");
+        titleEl.classList.add("reset");
+      }, MARQUEE_END_PAUSE_MS));
     } else if (ev.animationName === "titleReset") {
       titleEl.classList.remove("reset");
       track.style.transform = "translateX(0)";
@@ -1459,6 +2026,9 @@ function applyTitleMarquee(titleEl) {
 function refreshTitleMarquees() {
   for (const titleEl of document.querySelectorAll(".fly-card .title")) {
     applyTitleMarquee(titleEl);
+  }
+  for (const sub of document.querySelectorAll(".fly-card .sub")) {
+    applyFooterMarquee(sub);
   }
 }
 
@@ -1480,19 +2050,27 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
   smoothAudio(dt);
-  if (presetName !== visual.preset) rebuild();
-  waveGroup.rotation.y += dt * visual.rotationSpeed * (0.18 + audio.mid * 0.35);
+  if (presetName !== visual.preset) {
+    rebuild();
+    resize();
+  }
+  if (presetName === "mirrored-bars") {
+    waveGroup.rotation.set(0, 0, 0);
+  } else {
+    waveGroup.rotation.y += dt * visual.rotationSpeed * (0.18 + audio.mid * 0.35);
+  }
   if (presetName === "helix") updateHelix(t);
   else if (presetName === "ribbon") updateRibbon(t);
   else if (presetName === "wings") updateWings();
   else if (presetName === "tunnel") updateTunnel(t);
   else if (presetName === "burst") updateBurst(t);
-  else updateCube(t);
+  else if (presetName === "cube") updateCube(t);
+  else updateMirroredBars(dt);
+  updateCubeFrame(t);
   updateLogo(dt, t);
   updateSnap(dt, t);
   updateAtmos(dt);
   updateSquiggles(dt);
-  renderer.setClearColor(0x000000, 0);
   renderer.render(scene, camera);
   renderSpout();
   requestAnimationFrame(tick);
@@ -1532,6 +2110,7 @@ function connect() {
       applySpoutStatus(msg.status);
     } else if (msg.type === "hello" || msg.type === "config") {
       if (msg.visual) Object.assign(visual, msg.visual);
+      if (cubeFrameOverride !== null) visual.cubeFrame = cubeFrameOverride;
       if (msg.audio?.settings?.sensitivity) audioSensitivity = Number(msg.audio.settings.sensitivity) || audioSensitivity;
       if (!params.get("preset") && msg.visual?.preset) visual.preset = msg.visual.preset;
       if (msg.spout) setSpoutEnabled(msg.spout.enabled);

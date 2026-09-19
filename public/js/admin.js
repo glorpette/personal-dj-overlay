@@ -278,6 +278,7 @@ function applyConfig(cfg) {
   ]) updateRangeValue(input, output);
   setToggle($("bloomToggle"), visual.bloom);
   setToggle($("snapAutoToggle"), visual.snapAuto !== false);
+  setToggle($("cubeFrameToggle"), visual.cubeFrame === true);
 
   $("vdjHost").value = vdj.host ?? "";
   $("vdjPort").value = vdj.port ?? 8080;
@@ -537,6 +538,7 @@ function bindToggle(buttonId, makePatch) {
 bindToggle("spoutToggle", (enabled) => ({ spout: { enabled } }));
 bindToggle("bloomToggle", (bloom) => ({ visual: { bloom } }));
 bindToggle("snapAutoToggle", (snapAuto) => ({ visual: { snapAuto } }));
+bindToggle("cubeFrameToggle", (cubeFrame) => ({ visual: { cubeFrame } }));
 
 bindImmediateSelect("device", (device) => ({ audio: { device } }));
 bindImmediateSelect("backend", (backend) => ({ audio: { backend } }));

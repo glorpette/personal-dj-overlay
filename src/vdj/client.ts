@@ -82,6 +82,9 @@ export async function queryDeck(client: VdjClient, deck: number) {
   const album = await q("get_album");
   const bpm = await q("get_bpm");
   const key = await q("get_key");
+  let remix = "";
+  try { remix = await q("get_remix_after_title"); } catch { /* older VirtualDJ builds */ }
+  if (/^(false|null|undefined)$/i.test(remix.trim())) remix = "";
   const playing = await q("play");
   const audible = await q("is_audible");
   const elapsed = await client.query(`deck ${deck} get_time "elapsed"`);
@@ -102,6 +105,7 @@ export async function queryDeck(client: VdjClient, deck: number) {
     album,
     bpm: parseNum(bpm),
     key,
+    remix,
     playing: parseBool(playing),
     audible: parseBool(audible),
     elapsedMs: parseNum(elapsed),

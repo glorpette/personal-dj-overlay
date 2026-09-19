@@ -194,6 +194,14 @@ canvas#c {
   from { transform: translateX(calc(-1 * var(--marquee-distance, 100px))); }
   to { transform: translateX(0); }
 }
+@keyframes footerMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * var(--footer-marquee-distance, 100px))); }
+}
+@keyframes footerReset {
+  from { transform: translateX(calc(-1 * var(--footer-marquee-distance, 100px))); }
+  to { transform: translateX(0); }
+}
 .fly-card .artist {
   font-size: 13px;
   opacity: 0.86;
@@ -203,10 +211,44 @@ canvas#c {
   max-width: 280px;
 }
 .fly-card .sub {
+  display: flex;
+  align-items: baseline;
   margin-top: 3px;
   font-size: 11px;
   letter-spacing: 0.06em;
   color: rgba(244, 239, 232, 0.7);
+  width: clamp(150px, 23vw, 220px);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.fly-card .sub-bpm,
+.fly-card .sub-divider {
+  flex: 0 0 auto;
+}
+.fly-card .sub-divider {
+  margin: 0 4px;
+}
+.fly-card .sub-clip {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 24px), transparent 100%);
+}
+.fly-card .sub-track {
+  display: inline-block;
+  min-width: 100%;
+  white-space: nowrap;
+  will-change: transform;
+}
+.fly-card .sub.marquee .sub-track {
+  animation: footerMarquee var(--footer-marquee-duration, 8s) linear 1 forwards;
+}
+.fly-card .sub.reset .sub-track {
+  animation: footerReset 0.55s cubic-bezier(0.22, 1, 0.36, 1) 1 forwards;
 }
 
 .flyout.hidden {
@@ -231,7 +273,9 @@ canvas#c {
 
 @media (prefers-reduced-motion: reduce) {
   .fly-card .title.marquee .title-track,
-  .fly-card .title.reset .title-track {
+  .fly-card .title.reset .title-track,
+  .fly-card .sub.marquee .sub-track,
+  .fly-card .sub.reset .sub-track {
     animation: none;
     transform: translateX(0);
   }

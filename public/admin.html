@@ -147,6 +147,7 @@
                 <option value="tunnel">Tunnel / cylinder</option>
                 <option value="burst">Radial burst</option>
                 <option value="cube">Bass cube</option>
+                <option value="mirrored-bars">Mirrored frequency bars</option>
               </select>
             </label>
             <label class="field">
@@ -198,6 +199,10 @@
             </button>
             <button id="snapAutoToggle" class="toggle-button" type="button" data-label="AUTO BURST" aria-pressed="false">
               <span class="toggle-copy"><strong>Auto burst</strong><small>React to drops and peaks</small></span>
+              <span class="toggle-state">OFF</span>
+            </button>
+            <button id="cubeFrameToggle" class="toggle-button" type="button" data-label="CUBE FRAME" aria-pressed="false">
+              <span class="toggle-copy"><strong>Bass cube frame</strong><small>Wireframe around the logo</small></span>
               <span class="toggle-state">OFF</span>
             </button>
           </div>
@@ -268,6 +273,6 @@
     </main>
 
     <p class="build-note">Build 2026-09-09-compact. This control surface is optimized for a 400x700 VR dashboard and coarse touch pointers.</p>
-    <script src="/js/admin.js?v=20260909-compact"></script>
+    <script src="/js/admin.js?v=20260918-cube-frame"></script>
   </body>
 </html>

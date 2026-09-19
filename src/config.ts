@@ -51,6 +51,7 @@ export interface AppConfig {
     logoSpin: number;
     snap: number;
     snapAuto: boolean;
+    cubeFrame: boolean;
   };
 }
 
@@ -100,6 +101,7 @@ const DEFAULTS: AppConfig = {
     logoSpin: 0.35,
     snap: 0.35,
     snapAuto: true,
+    cubeFrame: false,
   },
 };
 

@@ -160,11 +160,21 @@ The native helper also supports direct diagnostics:
 Query overrides (optional):
 
 ```
-/overlay?preset=wings&palette=amber-ice&align=bottom&safe=0.16&spin=0.2&scale=1
+/overlay?preset=wings&palette=amber-ice&cubeframe=1&align=bottom&safe=0.16&spin=0.2&scale=1
 ```
 
-Presets: `helix`, `ribbon`, `wings`, `tunnel`, `burst`  
+Presets: `helix`, `ribbon`, `wings`, `tunnel`, `burst`, `cube`, `mirrored-bars`
 Alignments: `center`, `bottom`, `side`, `frame`
+
+`mirrored-bars` is intentionally front-facing and centered so its rounded
+frequency bars can span the full viewport; the global scale and palette still
+apply.
+
+Enable **Bass cube frame** in the admin panel to add the audio-reactive
+wireframe around the logo independently of the selected preset. It is also
+available as the URL override `cubeframe=1`; use `cubeframe=0` to force it off.
+The standalone frame is omitted when the `cube` preset is selected because
+that preset already includes its own cube geometry.
 
 ## Now-playing files
 

@@ -6,6 +6,7 @@ export interface DeckInfo {
   album: string;
   bpm: number | null;
   key: string;
+  remix: string;
   playing: boolean;
   audible: boolean;
   elapsedMs: number | null;
@@ -37,6 +38,7 @@ export function emptyDeck(n: number): DeckInfo {
     album: "",
     bpm: null,
     key: "",
+    remix: "",
     playing: false,
     audible: false,
     elapsedMs: null,
