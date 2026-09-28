@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { helperInstallPath, PACKAGED } from "./paths.ts";
 import { readAsset } from "./assets.ts";
 
-export async function ensureEmbeddedHelper(name: "WasapiLoopback.exe" | "SpoutReceiver.exe"): Promise<string> {
+export async function ensureEmbeddedHelper(name: "WasapiLoopback.exe" | "SpoutReceiver.exe" | "WaveCapture.exe"): Promise<string> {
   if (!PACKAGED) throw new Error(`Embedded helper requested outside a packaged executable: ${name}`);
   const data = readAsset(`helpers/${name}`);
   if (!data) throw new Error(`Embedded helper asset is missing: ${name}`);

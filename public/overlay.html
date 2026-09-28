@@ -4,10 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>VDJ Waveform Overlay</title>
-    <link rel="stylesheet" href="/css/overlay.css?v=20260918-static-bpm" />
+    <link rel="stylesheet" href="/css/overlay.css?v=20260926-debug-fps" />
   </head>
   <body>
     <canvas id="c"></canvas>
+    <aside id="debug-fps" class="debug-fps" aria-label="Browser render FPS" aria-live="off" hidden>
+      <span class="debug-fps-label">BROWSER RENDER</span>
+      <strong id="debug-fps-value" class="debug-fps-value">Measuring…</strong>
+    </aside>
 
     <div class="left-stack">
       <aside id="camera-panel" class="camera-panel hidden" aria-hidden="true">
@@ -72,6 +76,6 @@
         }
       }
     </script>
-    <script type="module" src="/js/overlay.js?v=20260918-cube-bars"></script>
+    <script type="module" src="/js/overlay.js?v=20260926-debug-fps"></script>
   </body>
 </html>

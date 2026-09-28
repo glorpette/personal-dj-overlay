@@ -8,3 +8,8 @@ data/*.tmp
 .DS_Store
 Thumbs.db
 .env
+virtualdj-skin/
+helpers/wave-capture/.build/
+helpers/wave-capture/build/
+__pycache__/
+*.py[cod]

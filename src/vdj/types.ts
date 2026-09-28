@@ -13,6 +13,7 @@ export interface DeckInfo {
   lengthSec: number | null;
   filepath: string;
   hasCover: boolean;
+  coverRevision: number;
   coverUrl: string;
 }
 
@@ -45,6 +46,7 @@ export function emptyDeck(n: number): DeckInfo {
     lengthSec: null,
     filepath: "",
     hasCover: false,
+    coverRevision: 0,
     coverUrl: "",
   };
 }

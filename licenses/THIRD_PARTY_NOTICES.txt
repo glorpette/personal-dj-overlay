@@ -86,9 +86,37 @@ binary in %LOCALAPPDATA%\vdj-live-overlay\tools\ffmpeg\licenses.
 https://ffmpeg.org/legal.html
 https://github.com/BtbN/FFmpeg-Builds
 
+VirtualDJ waveform capture helper
+---------------------------------
+The optional waveform pop-out capture helper embeds Python 3.14, the
+windows-capture package, NumPy, OpenCV, and the PyInstaller bootloader.
+
+Python
+  Python Software Foundation License Version 2. See the license included with
+  the Python runtime: https://docs.python.org/3/license.html
+
+windows-capture
+  Copyright (c) 2023 NiiightmareXD. MIT License.
+  https://github.com/NiiightmareXD/windows-capture
+
+NumPy
+  BSD 3-Clause and additional third-party notices.
+  https://numpy.org/doc/stable/license.html
+
+OpenCV
+  Apache License 2.0. The OpenCV wheel also includes third-party components
+  with separate notices.
+  https://opencv.org/license/
+
+PyInstaller
+  GPLv2 with a bootloader exception permitting redistribution of executables
+  produced by PyInstaller. See the license included with PyInstaller:
+  https://github.com/pyinstaller/pyinstaller/blob/develop/COPYING.txt
+
 Build tools
 -----------
 esbuild and postject are MIT-licensed build-time dependencies. They are not
-runtime dependencies of the generated executable.
+runtime dependencies of the generated executable. Python/PyInstaller are used
+to build the waveform helper and are described above.
 https://github.com/evanw/esbuild/blob/main/LICENSE.md
 https://github.com/nodejs/postject/blob/main/LICENSE

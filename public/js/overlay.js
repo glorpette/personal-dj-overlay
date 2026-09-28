@@ -3,10 +3,22 @@ import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
 
 const canvas = document.getElementById("c");
 const params = new URLSearchParams(location.search);
+const debugFpsEnabled = params.get("debug")?.toLowerCase() === "true";
+const debugFpsBadge = document.getElementById("debug-fps");
+const debugFpsValue = document.getElementById("debug-fps-value");
+if (debugFpsEnabled && debugFpsBadge) debugFpsBadge.hidden = false;
+let debugFpsFrames = 0;
+let debugFpsSampleStart = null;
+const presetUrlOverride = params.has("preset");
+const presetUrlValue = params.get("preset") || "helix";
 const cubeFrameOverride = params.has("cubeframe") ? params.get("cubeframe") !== "0" : null;
 
 const visual = {
-  preset: params.get("preset") || "helix",
+  preset: presetUrlValue,
+  preset2: "",
+  preset3: "",
+  presetRotation: false,
+  presetRotationSeconds: 30,
   palette: params.get("palette") || "cyan-magenta",
   bloom: params.get("bloom") !== "0",
   alignment: params.get("align") || "center",
@@ -31,7 +43,16 @@ const PALETTES = {
 
 let audioSensitivity = 1.15;
 
-const PRESETS = ["helix", "ribbon", "wings", "tunnel", "burst", "cube", "mirrored-bars"];
+const PRESETS = [
+  "helix",
+  "ribbon",
+  "wings",
+  "tunnel",
+  "burst",
+  "cube",
+  "mirrored-bars",
+  "mirrored-lightning",
+];
 
 function emptyFrame() {
   return {
@@ -432,16 +453,19 @@ const group = new THREE.Group();
 const waveGroup = new THREE.Group();
 const logoGroup = new THREE.Group();
 const snapGroup = new THREE.Group();
+const cornerGroup = new THREE.Group();
 scene.add(group);
 group.add(waveGroup);
 group.add(logoGroup);
 group.add(snapGroup);
+group.add(cornerGroup);
 // Keep the visual layers deterministic: waveform bars first, optional cube
 // frame next, logo above it, and beat-reactive snap particles above both.
 // Atmosphere remains scene-level.
 waveGroup.renderOrder = 1;
 logoGroup.renderOrder = 3;
 snapGroup.renderOrder = 4;
+cornerGroup.renderOrder = 4;
 
 // These lights only affect the logo's physical side materials. The rest of the
 // overlay intentionally stays unlit so its existing additive colors do not change.
@@ -458,6 +482,8 @@ const BAR = 64;
 const WAVE = 128;
 const MIRROR_BAR_COUNT = 96;
 const MIRROR_HALF_COUNT = MIRROR_BAR_COUNT / 2;
+const LIGHTNING_HALF_POINTS = 96;
+const LIGHTNING_POINT_COUNT = LIGHTNING_HALF_POINTS * 2 + 1;
 const CUBE_CORNERS = [
   [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1],
   [-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
@@ -467,10 +493,32 @@ const mirrorBarTargets = new Float32Array(MIRROR_HALF_COUNT);
 let mirroredBassPulse = 0;
 let mirroredBassPrevious = 0;
 let mirroredBarMeshes = [];
+const lightningHeights = new Float32Array(LIGHTNING_HALF_POINTS + 1);
+const lightningPath = new Float32Array(LIGHTNING_POINT_COUNT * 3);
+let lightningBassPulse = 0;
+let lightningBassPrevious = 0;
+let lightningLine = null;
 let activeCubeVisual = null;
 let cubeFrameOverlay = null;
 let meshes = [];
 let presetName = "";
+
+const VISUAL_FADE_OUT_SECONDS = 0.62;
+const VISUAL_FADE_IN_SECONDS = 0.82;
+const visualTransition = {
+  phase: "idle",
+  alpha: 1,
+  target: null,
+  reason: null,
+};
+let appliedVisualizerFade = 1;
+let requestedPrimaryPreset = "";
+let rotationElapsed = 0;
+let rotationPoolKey = "";
+let rotationBag = [];
+let rotationActive = false;
+let builtCubeFrame = false;
+let visualRebuildRequested = false;
 
 const SNAP_N = 720;
 const snapHome = new Float32Array(SNAP_N * 3);
@@ -581,7 +629,7 @@ function updateSnap(dt, t) {
   }
   snapBurst = Math.max(0, snapBurst - dt * 0.55);
 
-  const wr = waveGroup.rotation.y;
+  const wr = presetName === "mirrored-bars" || presetName === "mirrored-lightning" ? 0 : waveGroup.rotation.y;
   const cr = Math.cos(wr);
   const sr = Math.sin(wr);
   for (let i = 0; i < snapCount; i++) {
@@ -845,7 +893,7 @@ function layoutLogo() {
   else if (presetName === "tunnel") { s = 0.74; z = 0; }
   else if (presetName === "burst") { s = 0.82; z = 0.1; }
   else if (presetName === "cube") { s = 0.72; z = 0; }
-  else if (presetName === "mirrored-bars") { s = 0.72; z = 0.14; }
+  else if (presetName === "mirrored-bars" || presetName === "mirrored-lightning") { s = 0.72; z = 0.14; }
   const base = logoMesh.userData.baseScale || 1;
   logoMesh.scale.setScalar(base * s);
   logoMesh.position.set(0, 0, z);
@@ -858,20 +906,29 @@ function clearPreset() {
     disposeCubeVisual(cubeFrameOverlay);
     cubeFrameOverlay = null;
   }
+  const disposedGeometries = new Set();
   for (const m of meshes) {
-    waveGroup.remove(m);
-    m.geometry?.dispose?.();
+    m.parent?.remove(m);
+    if (m.geometry && !disposedGeometries.has(m.geometry)) {
+      m.geometry.dispose?.();
+      disposedGeometries.add(m.geometry);
+    }
     if (Array.isArray(m.material)) m.material.forEach((x) => x.dispose?.());
     else m.material?.dispose?.();
   }
   meshes = [];
   mirroredBarMeshes = [];
+  lightningLine = null;
+  lightningPath.fill(0);
+  lightningHeights.fill(0);
+  lightningBassPulse = 0;
+  lightningBassPrevious = 0;
   activeCubeVisual = null;
 }
 
-function add(obj) {
+function add(obj, parent = waveGroup) {
   obj.renderOrder = 1;
-  waveGroup.add(obj);
+  parent.add(obj);
   meshes.push(obj);
   return obj;
 }
@@ -988,8 +1045,10 @@ function buildCube() {
   add(activeCubeVisual.mesh);
   add(activeCubeVisual.frame);
   activeCubeVisual.frame.renderOrder = 2;
-  add(activeCubeVisual.corners);
-  activeCubeVisual.corners.renderOrder = 2;
+  add(activeCubeVisual.corners, cornerGroup);
+  // Draw corners after the logo, but retain depth testing so only physically
+  // front-facing corner blocks can appear over the logo.
+  activeCubeVisual.corners.renderOrder = 4;
 }
 
 function buildCubeFrame() {
@@ -1193,9 +1252,179 @@ function buildMirroredBars() {
   mirroredBassPrevious = audio.bass;
 }
 
-function rebuild() {
+function buildMirroredLightning() {
+  const positions = new Float32Array(LIGHTNING_POINT_COUNT * 2 * 3);
+  const colors = new Float32Array(LIGHTNING_POINT_COUNT * 2 * 3);
+  const indices = [];
+  for (let i = 0; i < LIGHTNING_POINT_COUNT - 1; i++) {
+    const a = i * 2;
+    const b = (i + 1) * 2;
+    indices.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setIndex(indices);
+
+  const line = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.82,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: visual.bloom ? THREE.AdditiveBlending : THREE.NormalBlending,
+    toneMapped: false,
+  }));
+  const shadow = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+    color: 0x080414,
+    transparent: true,
+    opacity: 0.2,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.NormalBlending,
+    toneMapped: false,
+  }));
+  line.frustumCulled = false;
+  shadow.frustumCulled = false;
+  shadow.position.set(0.045, -0.055, -0.12);
+  line.userData.keepFullOpacity = true;
+  line.userData.layoutKey = "";
+  line.userData.paletteKey = "";
+  line.userData.colorScratch = new THREE.Color();
+  line.userData.shadow = shadow;
+  shadow.userData.keepFullOpacity = true;
+  add(line);
+  add(shadow);
+  line.renderOrder = 1;
+  shadow.renderOrder = 0;
+  lightningLine = line;
+  lightningPath.fill(0);
+  lightningHeights.fill(0);
+  lightningBassPulse = 0;
+  lightningBassPrevious = audio.bass;
+}
+
+function updateLightningLayout() {
+  if (!lightningLine) return;
+  const key = `${innerWidth}x${innerHeight}:${visual.scale}:${camera.aspect}:${camera.fov}:`
+    + `${camera.position.x},${camera.position.y},${camera.position.z}:`
+    + `${camera.quaternion.x},${camera.quaternion.y},${camera.quaternion.z},${camera.quaternion.w}:`
+    + `${group.position.x},${group.position.y},${group.position.z}:${screenWideLocalScale()}`;
+  if (lightningLine.userData.layoutKey === key) return;
+  // Overscan the viewport slightly so the ribbon cannot leave a visible gap at
+  // either edge after perspective projection and antialiasing.
+  lightningLine.userData.span = (mirrorViewWidth() * 1.1) / screenWideLocalScale();
+  lightningLine.userData.layoutKey = key;
+}
+
+function updateLightningColors() {
+  if (!lightningLine || lightningLine.userData.paletteKey === visual.palette) return;
+  const attribute = lightningLine.geometry.getAttribute("color");
+  const scratch = lightningLine.userData.colorScratch;
+  for (let i = 0; i < LIGHTNING_POINT_COUNT; i++) {
+    const t = i / Math.max(1, LIGHTNING_POINT_COUNT - 1);
+    const scaled = t * 2;
+    const segment = Math.min(1, Math.floor(scaled));
+    scratch.copy(col(segment)).lerp(col(segment + 1), scaled - segment);
+    scratch.toArray(attribute.array, i * 2 * 3);
+    scratch.toArray(attribute.array, (i * 2 + 1) * 3);
+  }
+  attribute.needsUpdate = true;
+  lightningLine.userData.paletteKey = visual.palette;
+}
+
+function updateMirroredLightning(dt, t) {
+  beginSamples();
+  if (!lightningLine) return;
+  updateLightningLayout();
+  updateLightningColors();
+
+  const position = lightningLine.geometry.getAttribute("position");
+  const span = lightningLine.userData.span || mirrorViewWidth();
+  const step = span / Math.max(1, LIGHTNING_POINT_COUNT - 1);
+  const up = 1 - Math.exp(-dt / 0.028);
+  const down = 1 - Math.exp(-dt / 0.085);
+  const bassRise = Math.max(0, audio.bass - lightningBassPrevious);
+  lightningBassPrevious = audio.bass;
+  lightningBassPulse = Math.max(
+    Math.min(1, audio.bass * 0.25 + bassRise * 4.2 + audio.peak * 0.08),
+    lightningBassPulse * Math.exp(-dt / 0.16),
+  );
+
+  for (let outer = 0; outer <= LIGHTNING_HALF_POINTS; outer++) {
+    const frequency = outer / Math.max(1, LIGHTNING_HALF_POINTS);
+    const energy = sampleSpectrum(frequency * (audio.bins.length - 1));
+    const activity = THREE.MathUtils.clamp(
+      energy * 0.9 + audio.rms * 0.62 + audio.bass * 0.28 + audio.high * 0.18 + audio.peak * 0.2,
+      0,
+      1,
+    );
+    const crack = Math.sin(t * 4.6 + outer * 2.19)
+      + Math.sin(t * 8.9 - outer * 3.71) * 0.42
+      + Math.sin(t * 13.7 + outer * 5.13) * 0.18;
+    const amplitude = activity * (0.035 + energy * 0.34 + audio.high * 0.08 + audio.rms * 0.06);
+    const centerKick = lightningBassPulse * Math.pow(1 - frequency, 2.4) * 0.24;
+    const next = crack * amplitude + centerKick;
+    const rate = next > lightningHeights[outer] ? up : down;
+    const y = lightningHeights[outer] = follow(lightningHeights[outer], next, rate, rate);
+    const leftIndex = LIGHTNING_HALF_POINTS - outer;
+    const rightIndex = LIGHTNING_HALF_POINTS + outer;
+    const leftX = -span * 0.5 + step * leftIndex;
+    const rightX = -span * 0.5 + step * rightIndex;
+    const leftOffset = leftIndex * 3;
+    lightningPath[leftOffset] = leftX;
+    lightningPath[leftOffset + 1] = y;
+    lightningPath[leftOffset + 2] = -0.06;
+    if (outer === 0) {
+      pushSample(0, y, -0.06, energy);
+    } else {
+      const rightOffset = rightIndex * 3;
+      lightningPath[rightOffset] = rightX;
+      lightningPath[rightOffset + 1] = y;
+      lightningPath[rightOffset + 2] = -0.06;
+      pushSample(leftX, y, -0.06, energy);
+      pushSample(rightX, y, -0.06, energy);
+    }
+  }
+
+  const impact = THREE.MathUtils.clamp(
+    audio.rms * 0.5 + audio.bass * 0.72 + audio.high * 0.24 + audio.peak * 0.34 + lightningBassPulse * 0.5,
+    0,
+    1,
+  );
+  const halfWidth = 0.018 + impact * 0.008;
+  for (let i = 0; i < LIGHTNING_POINT_COUNT; i++) {
+    const prev = Math.max(0, i - 1) * 3;
+    const next = Math.min(LIGHTNING_POINT_COUNT - 1, i + 1) * 3;
+    const current = i * 3;
+    const tx = lightningPath[next] - lightningPath[prev];
+    const ty = lightningPath[next + 1] - lightningPath[prev + 1];
+    const length = Math.hypot(tx, ty) || 1;
+    const nx = -ty / length * halfWidth;
+    const ny = tx / length * halfWidth;
+    const vertex = i * 2 * 3;
+    position.array[vertex] = lightningPath[current] + nx;
+    position.array[vertex + 1] = lightningPath[current + 1] + ny;
+    position.array[vertex + 2] = lightningPath[current + 2];
+    position.array[vertex + 3] = lightningPath[current] - nx;
+    position.array[vertex + 4] = lightningPath[current + 1] - ny;
+    position.array[vertex + 5] = lightningPath[current + 2];
+  }
+  position.needsUpdate = true;
+  lightningLine.material.opacity = 0.72 + impact * 0.2;
+  const blending = visual.bloom ? THREE.AdditiveBlending : THREE.NormalBlending;
+  if (lightningLine.material.blending !== blending) {
+    lightningLine.material.blending = blending;
+    lightningLine.material.needsUpdate = true;
+  }
+  lightningLine.userData.shadow.material.opacity = 0.16 + impact * 0.08;
+}
+
+function rebuild(nextPreset = visual.preset, preserveLogo = false) {
   clearPreset();
-  presetName = visual.preset;
+  presetName = PRESETS.includes(nextPreset) ? nextPreset : "helix";
   if (!PRESETS.includes(presetName)) presetName = "helix";
   if (presetName === "helix") buildHelix();
   else if (presetName === "ribbon") buildRibbon();
@@ -1203,10 +1432,226 @@ function rebuild() {
   else if (presetName === "tunnel") buildTunnel();
   else if (presetName === "burst") buildBurst();
   else if (presetName === "cube") buildCube();
-  else buildMirroredBars();
-  if (visual.cubeFrame && presetName !== "cube") buildCubeFrame();
-  if (presetName === "mirrored-bars") waveGroup.rotation.set(0, 0, 0);
-  layoutLogo();
+  else if (presetName === "mirrored-bars") buildMirroredBars();
+  else buildMirroredLightning();
+  builtCubeFrame = Boolean(visual.cubeFrame && presetName !== "cube");
+  if (builtCubeFrame) {
+    buildCubeFrame();
+    if (preserveLogo && logoMesh) cubeFrameOverlay.group.position.copy(logoMesh.position);
+  }
+  if (presetName === "mirrored-bars" || presetName === "mirrored-lightning") updateScreenWideLayout();
+  else resetScreenWideLayout();
+  if (!preserveLogo) layoutLogo();
+}
+
+function normalizePreset(name) {
+  return typeof name === "string" && PRESETS.includes(name) ? name : "helix";
+}
+
+function primaryPreset() {
+  return normalizePreset(presetUrlOverride ? presetUrlValue : visual.preset);
+}
+
+function visualizerPool() {
+  const list = [];
+  for (const candidate of [primaryPreset(), visual.preset2, visual.preset3]) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue;
+    const preset = normalizePreset(candidate);
+    if (!list.includes(preset)) list.push(preset);
+  }
+  return list.length ? list : ["helix"];
+}
+
+function shuffledRotationBag(pool) {
+  // Treat the configured slots as a shuffled bag rather than making an
+  // independent random choice at every interval. Every configured preset is
+  // therefore visited before one can be selected again.
+  const bag = pool.filter((preset) => preset !== presetName);
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
+}
+
+function forEachVisualizerMaterial(callback) {
+  const seen = new Set();
+  for (const root of [waveGroup, snapGroup, cornerGroup]) {
+    root.traverse((object) => {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (!material || seen.has(material)) continue;
+        seen.add(material);
+        callback(material);
+      }
+    });
+  }
+}
+
+function restoreVisualizerFade() {
+  const factor = appliedVisualizerFade;
+  if (factor === 1) return;
+  forEachVisualizerMaterial((material) => {
+    const uniform = material.uniforms?.uOpacity;
+    if (uniform && typeof uniform.value === "number") uniform.value /= factor;
+    else if (typeof material.opacity === "number") material.opacity /= factor;
+  });
+  appliedVisualizerFade = 1;
+}
+
+function applyVisualizerFade(alpha) {
+  const factor = Math.max(0.001, Math.min(1, Number(alpha) || 0));
+  if (factor === 1) {
+    appliedVisualizerFade = 1;
+    return;
+  }
+  forEachVisualizerMaterial((material) => {
+    const uniform = material.uniforms?.uOpacity;
+    if (uniform && typeof uniform.value === "number") uniform.value *= factor;
+    else if (typeof material.opacity === "number") material.opacity *= factor;
+  });
+  appliedVisualizerFade = factor;
+}
+
+function beginVisualizerTransition(target, reason = "manual") {
+  const next = normalizePreset(target);
+  if (next === presetName) {
+    if (visualTransition.phase !== "idle") {
+      visualTransition.target = null;
+      visualTransition.reason = null;
+      visualTransition.phase = "in";
+    }
+    return;
+  }
+  visualTransition.target = next;
+  visualTransition.reason = reason;
+  if (visualTransition.phase === "idle" || visualTransition.phase === "in") {
+    visualTransition.phase = "out";
+  }
+}
+
+function advanceVisualizerTransition(dt) {
+  if (visualTransition.phase === "out") {
+    visualTransition.alpha = Math.max(0, visualTransition.alpha - dt / VISUAL_FADE_OUT_SECONDS);
+    if (visualTransition.alpha <= 0) {
+      const target = visualTransition.target || primaryPreset();
+      restoreVisualizerFade();
+      rebuild(target, true);
+      visualRebuildRequested = false;
+      visualTransition.alpha = 0;
+      visualTransition.phase = "in";
+    }
+  }
+  if (visualTransition.phase === "in") {
+    visualTransition.alpha = Math.min(1, visualTransition.alpha + dt / VISUAL_FADE_IN_SECONDS);
+    if (visualTransition.alpha >= 1) {
+      visualTransition.alpha = 1;
+      visualTransition.phase = "idle";
+      visualTransition.target = null;
+      visualTransition.reason = null;
+    }
+  }
+}
+
+function syncVisualizerControl() {
+  const primary = primaryPreset();
+  if (Boolean(visual.cubeFrame && presetName !== "cube") !== builtCubeFrame) visualRebuildRequested = true;
+  if (!requestedPrimaryPreset) requestedPrimaryPreset = primary;
+  if (primary !== requestedPrimaryPreset) {
+    requestedPrimaryPreset = primary;
+    rotationActive = false;
+    rotationElapsed = 0;
+    rotationPoolKey = "";
+    rotationBag = [];
+    beginVisualizerTransition(primary, "manual");
+  }
+
+  const pool = visualizerPool();
+  const rotationAllowed = !presetUrlOverride && visual.presetRotation === true && pool.length > 1;
+  if (!rotationAllowed) {
+    rotationElapsed = 0;
+    rotationPoolKey = "";
+    rotationBag = [];
+    if (rotationActive || visualTransition.reason === "rotation") {
+      rotationActive = false;
+      if (presetName !== primary || visualTransition.target !== primary) {
+        beginVisualizerTransition(primary, "manual");
+      }
+    }
+    return;
+  }
+
+  const key = `${pool.join("|")}:${visual.presetRotationSeconds}`;
+  if (key !== rotationPoolKey) {
+    rotationPoolKey = key;
+    rotationElapsed = 0;
+    rotationBag = shuffledRotationBag(pool);
+  }
+  if (rotationActive && visualTransition.phase === "idle" && !pool.includes(presetName)) {
+    rotationActive = false;
+    beginVisualizerTransition(primary, "manual");
+  }
+}
+
+function updateVisualizerRotation(dt) {
+  if (presetUrlOverride || visual.presetRotation !== true) return;
+  const pool = visualizerPool();
+  if (pool.length < 2 || visualTransition.phase !== "idle") return;
+  rotationElapsed += dt;
+  const interval = Math.max(5, Math.min(300, Number(visual.presetRotationSeconds) || 30));
+  if (rotationElapsed < interval) return;
+  if (!rotationBag.length) rotationBag = shuffledRotationBag(pool);
+  const next = rotationBag.shift();
+  if (!next) return;
+  rotationElapsed = 0;
+  rotationActive = true;
+  beginVisualizerTransition(next, "rotation");
+}
+
+const screenWideDirection = new THREE.Vector3();
+const screenWideCameraPosition = new THREE.Vector3();
+const screenWideCenter = new THREE.Vector3();
+const screenWidePlane = new THREE.Vector3();
+const screenWideCameraQuaternion = new THREE.Quaternion();
+const screenWideParentQuaternion = new THREE.Quaternion();
+const screenWideWorldScale = new THREE.Vector3();
+
+function updateScreenWideLayout() {
+  if (presetName !== "mirrored-bars" && presetName !== "mirrored-lightning") return;
+  camera.updateMatrixWorld(true);
+  group.updateMatrixWorld(true);
+  camera.getWorldPosition(screenWideCameraPosition);
+  camera.getWorldDirection(screenWideDirection);
+  group.getWorldPosition(screenWideCenter);
+  const depth = Math.max(
+    0.1,
+    screenWideCenter.sub(screenWideCameraPosition).dot(screenWideDirection),
+  );
+  // Put the visual on the camera's centre ray, not at the previous preset's
+  // world-space rotation. This keeps the line level and centred even when a
+  // transition arrives from a perspective preset with a yaw/pitch camera.
+  screenWidePlane.copy(screenWideDirection).multiplyScalar(depth).add(screenWideCameraPosition);
+  group.worldToLocal(screenWidePlane);
+  waveGroup.position.copy(screenWidePlane);
+  group.getWorldQuaternion(screenWideParentQuaternion).invert();
+  camera.getWorldQuaternion(screenWideCameraQuaternion);
+  waveGroup.quaternion.copy(screenWideParentQuaternion).multiply(screenWideCameraQuaternion);
+  snapGroup.position.copy(waveGroup.position);
+  snapGroup.quaternion.copy(waveGroup.quaternion);
+}
+
+function syncCornerLayerTransform() {
+  cornerGroup.position.copy(waveGroup.position);
+  cornerGroup.quaternion.copy(waveGroup.quaternion);
+  cornerGroup.scale.copy(waveGroup.scale);
+}
+
+function resetScreenWideLayout() {
+  waveGroup.position.set(0, 0, 0);
+  waveGroup.quaternion.identity();
+  snapGroup.position.set(0, 0, 0);
+  snapGroup.quaternion.identity();
+  syncCornerLayerTransform();
 }
 
 function applyAlignment(w, h) {
@@ -1215,14 +1660,15 @@ function applyAlignment(w, h) {
   group.position.set(0, 0, 0);
   camera.fov = 42;
 
-  // The mirrored bars are a deliberately flat, screen-spanning preset. Keep
-  // the camera square to the bar plane so the two halves stay symmetrical and
-  // the center logo remains the visual anchor.
-  if (presetName === "mirrored-bars") {
+  // The mirrored presets are deliberately flat, screen-spanning visuals. Keep
+  // the camera square to their line/bar plane so both halves stay symmetrical
+  // and the center logo remains the visual anchor.
+  if (presetName === "mirrored-bars" || presetName === "mirrored-lightning") {
     camera.position.set(0, 0, 6);
     camera.lookAt(0, 0, 0);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    updateScreenWideLayout();
     return;
   }
 
@@ -1244,6 +1690,7 @@ function applyAlignment(w, h) {
   camera.lookAt(0, group.position.y * 0.35, 0);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  resetScreenWideLayout();
 }
 
 function updateHelix(t) {
@@ -1355,9 +1802,22 @@ function updateBurst(t) {
 }
 
 function mirrorViewWidth() {
-  const distance = Math.max(0.1, camera.position.z - group.position.z);
+  camera.updateMatrixWorld(true);
+  group.updateMatrixWorld(true);
+  camera.getWorldPosition(screenWideCameraPosition);
+  camera.getWorldDirection(screenWideDirection);
+  waveGroup.getWorldPosition(screenWideCenter);
+  const distance = Math.max(
+    0.1,
+    screenWideCenter.sub(screenWideCameraPosition).dot(screenWideDirection),
+  );
   const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
   return viewHeight * Math.max(0.1, camera.aspect);
+}
+
+function screenWideLocalScale() {
+  group.getWorldScale(screenWideWorldScale);
+  return Math.max(0.1, screenWideWorldScale.x);
 }
 
 function sampleSpectrum(position) {
@@ -1388,9 +1848,12 @@ function sampleSpectrum(position) {
 }
 
 function updateMirroredBarLayout(inst) {
-  const key = `${innerWidth}x${innerHeight}:${visual.scale}:${camera.aspect}:${camera.fov}`;
+  const key = `${innerWidth}x${innerHeight}:${visual.scale}:${camera.aspect}:${camera.fov}:`
+    + `${camera.position.x},${camera.position.y},${camera.position.z}:`
+    + `${camera.quaternion.x},${camera.quaternion.y},${camera.quaternion.z},${camera.quaternion.w}:`
+    + `${group.position.x},${group.position.y},${group.position.z}:${screenWideLocalScale()}`;
   if (inst.userData.layoutKey === key) return;
-  const span = (mirrorViewWidth() * 1.04) / Math.max(0.1, visual.scale);
+  const span = (mirrorViewWidth() * 1.1) / screenWideLocalScale();
   const cell = span / MIRROR_BAR_COUNT;
   inst.userData.layout = {
     span,
@@ -1805,6 +2268,39 @@ function updateAtmos(dt) {
   }
 }
 
+function updateFlyCover(el, deck) {
+  const art = el.querySelector(".art");
+  const img = art?.querySelector("img");
+  if (!art || !img) return;
+
+  const coverUrl = deck?.hasCover && typeof deck.coverUrl === "string" ? deck.coverUrl : "";
+  if (el.dataset.coverUrl === coverUrl) return;
+  el.dataset.coverUrl = coverUrl;
+  const request = String((Number(el.dataset.coverRequest) || 0) + 1);
+  el.dataset.coverRequest = request;
+  img.onload = null;
+  img.onerror = null;
+  art.classList.remove("has-art");
+
+  if (!coverUrl) {
+    img.removeAttribute("src");
+    art.classList.remove("has-art");
+    return;
+  }
+
+  img.onload = () => {
+    if (el.dataset.coverRequest === request && el.dataset.coverUrl === coverUrl) {
+      art.classList.add("has-art");
+    }
+  };
+  img.onerror = () => {
+    if (el.dataset.coverRequest === request && el.dataset.coverUrl === coverUrl) {
+      art.classList.remove("has-art");
+    }
+  };
+  img.src = coverUrl;
+}
+
 function setFly(el, deck, side) {
   if (!el) return;
   const title = (deck && (deck.title || deck.artistTitle)) || "";
@@ -1813,15 +2309,8 @@ function setFly(el, deck, side) {
   const key = `${title}|${artist}`;
   if (el.dataset.key === key) {
     setDeckFooter(el, deck);
+    updateFlyCover(el, deck);
     el.classList.toggle("onair", Boolean(deck && deck.audible));
-    const art = el.querySelector(".art");
-    if (loaded && art && !art.classList.contains("has-art") && deck.coverUrl) {
-      const now = Date.now();
-      if (now - Number(el.dataset.tried || 0) > 4000) {
-        el.dataset.tried = String(now);
-        art.querySelector("img").src = `${deck.coverUrl}?r=${now}`;
-      }
-    }
     return;
   }
   if (el.dataset.key !== key) {
@@ -1837,16 +2326,7 @@ function setFly(el, deck, side) {
       requestAnimationFrame(() => applyTitleMarquee(titleEl));
       el.querySelector(".artist").textContent = artist;
       setDeckFooter(el, deck, true);
-      const art = el.querySelector(".art");
-      const img = art.querySelector("img");
-      if (deck && deck.coverUrl && (title || artist)) {
-        img.src = `${deck.coverUrl}?t=${encodeURIComponent(key)}`;
-        img.onload = () => art.classList.add("has-art");
-        img.onerror = () => art.classList.remove("has-art");
-      } else {
-        img.removeAttribute("src");
-        art.classList.remove("has-art");
-      }
+      updateFlyCover(el, deck);
       el.dataset.key = key;
       if (loaded) {
         el.classList.remove("hidden", "out");
@@ -2049,31 +2529,57 @@ async function pullNowPlaying() {
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  smoothAudio(dt);
-  if (presetName !== visual.preset) {
-    rebuild();
+  restoreVisualizerFade();
+  syncVisualizerControl();
+  updateVisualizerRotation(dt);
+  advanceVisualizerTransition(dt);
+  if (visualRebuildRequested && visualTransition.phase === "idle") {
+    restoreVisualizerFade();
+    rebuild(presetName, true);
+    visualRebuildRequested = false;
     resize();
   }
-  if (presetName === "mirrored-bars") {
-    waveGroup.rotation.set(0, 0, 0);
+  smoothAudio(dt);
+  if (presetName === "mirrored-bars" || presetName === "mirrored-lightning") {
+    updateScreenWideLayout();
   } else {
     waveGroup.rotation.y += dt * visual.rotationSpeed * (0.18 + audio.mid * 0.35);
   }
+  syncCornerLayerTransform();
   if (presetName === "helix") updateHelix(t);
   else if (presetName === "ribbon") updateRibbon(t);
   else if (presetName === "wings") updateWings();
   else if (presetName === "tunnel") updateTunnel(t);
   else if (presetName === "burst") updateBurst(t);
   else if (presetName === "cube") updateCube(t);
-  else updateMirroredBars(dt);
+  else if (presetName === "mirrored-bars") updateMirroredBars(dt);
+  else updateMirroredLightning(dt, t);
   updateCubeFrame(t);
   updateLogo(dt, t);
   updateSnap(dt, t);
   updateAtmos(dt);
   updateSquiggles(dt);
+  applyVisualizerFade(visualTransition.alpha);
   renderer.render(scene, camera);
   renderSpout();
+  if (debugFpsEnabled) updateDebugFps();
   requestAnimationFrame(tick);
+}
+
+function updateDebugFps() {
+  if (!debugFpsValue) return;
+  const now = performance.now();
+  if (debugFpsSampleStart === null) {
+    debugFpsSampleStart = now;
+    debugFpsFrames = 0;
+    return;
+  }
+  debugFpsFrames++;
+  const elapsed = now - debugFpsSampleStart;
+  if (elapsed < 1000) return;
+  debugFpsValue.textContent = `${(debugFpsFrames * 1000 / elapsed).toFixed(1)} FPS`;
+  debugFpsSampleStart = now;
+  debugFpsFrames = 0;
 }
 
 function resize() {
@@ -2086,7 +2592,8 @@ function resize() {
 }
 
 addEventListener("resize", resize);
-rebuild();
+rebuild(primaryPreset());
+requestedPrimaryPreset = presetName;
 initSpoutView();
 makeSnapSystem();
 makeAtmos();
@@ -2110,13 +2617,14 @@ function connect() {
       applySpoutStatus(msg.status);
     } else if (msg.type === "hello" || msg.type === "config") {
       if (msg.visual) Object.assign(visual, msg.visual);
+      if (msg.type === "config") visualRebuildRequested = true;
+      if (presetUrlOverride) visual.preset = presetUrlValue;
       if (cubeFrameOverride !== null) visual.cubeFrame = cubeFrameOverride;
       if (msg.audio?.settings?.sensitivity) audioSensitivity = Number(msg.audio.settings.sensitivity) || audioSensitivity;
-      if (!params.get("preset") && msg.visual?.preset) visual.preset = msg.visual.preset;
       if (msg.spout) setSpoutEnabled(msg.spout.enabled);
       if (msg.spoutStatus) applySpoutStatus(msg.spoutStatus);
       if (msg.nowPlaying) applyNowPlaying(msg.nowPlaying);
-      rebuild();
+      syncVisualizerControl();
       resize();
     }
   };

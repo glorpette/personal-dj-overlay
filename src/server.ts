@@ -3,14 +3,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { AppConfig } from "./config.ts";
-import { applyPartial, saveConfig } from "./config.ts";
+import { applyPartial, saveConfig, VISUAL_PRESETS } from "./config.ts";
 import { log } from "./logger.ts";
 import { listDevices } from "./audio/devices.ts";
 import type { AudioEngine } from "./audio/capture.ts";
 import type { VdjPoller } from "./vdj/poller.ts";
 import { listSpoutSenders, type SpoutEngine, type SpoutStatus } from "./spout/receiver.ts";
 import type { SpectrumFrame } from "./audio/types.ts";
-import { coverFile, coverMime } from "./vdj/covers.ts";
+import { coverMime, getCoverAsset } from "./vdj/covers.ts";
+import type { WaveformCaptureEngine } from "./waveform/engine.ts";
 import { readAsset, readAssetText, readPublicAsset } from "./runtime/assets.ts";
 
 const MIME: Record<string, string> = {
@@ -31,6 +32,7 @@ export function startServer(opts: {
   audio: AudioEngine;
   poller: VdjPoller;
   spout: SpoutEngine;
+  waveform: WaveformCaptureEngine;
 }): {
   server: ReturnType<typeof createServer>;
   broadcastFrame: (f: SpectrumFrame) => void;
@@ -109,7 +111,13 @@ export function startServer(opts: {
     if (path === "/api/licenses") return json(res, { text: readAssetText("licenses/THIRD_PARTY_NOTICES.txt") || "" });
 
     if (path === "/api/health") {
-      return json(res, { ok: true, audio: statusAudio(), vdj: opts.poller.getState(), spout: spoutStatus });
+      return json(res, {
+        ok: true,
+        audio: statusAudio(),
+        vdj: opts.poller.getState(),
+        spout: spoutStatus,
+        waveform: await opts.waveform.getStatus(),
+      });
     }
     if (path === "/api/nowplaying") return json(res, opts.poller.getState());
     if (path === "/api/config" && req.method === "GET") {
@@ -118,6 +126,12 @@ export function startServer(opts: {
     if (path === "/api/devices") return json(res, { devices: await listDevices() });
     if (path === "/api/spout/status" && req.method === "GET") return json(res, spoutStatus);
     if (path === "/api/spout/senders" && req.method === "GET") return json(res, await listSpoutSenders());
+    if (path === "/api/waveform/status" && req.method === "GET") {
+      return json(res, await opts.waveform.getStatus());
+    }
+    if (path === "/api/waveform/windows" && req.method === "GET") {
+      return json(res, { windows: await opts.waveform.listWindows() });
+    }
 
     if (path === "/api/config" && req.method === "POST") {
       const body = await readBody(req);
@@ -142,6 +156,7 @@ export function startServer(opts: {
       if (validationError) return json(res, { error: validationError }, 400);
       const restartAudio = audioCaptureConfigChanged(previous, next);
       const restartSpout = spoutConfigChanged(previous, next);
+      const restartWaveform = waveformConfigChanged(previous, next);
       saveConfig(next);
       configRevision++;
       opts.setConfig(next);
@@ -158,6 +173,9 @@ export function startServer(opts: {
         for (const ws of sockets) if (ws.readyState === 1) ws.send(msg);
       };
       if (restartAudio) void opts.audio.restart();
+      if (restartWaveform) {
+        void opts.waveform.restart().catch((error) => log.warn("Waveform restart failed", { error }));
+      }
       if (restartSpout && next.spout.enabled) {
         // Let the receiver enter its starting state before the overlay arms the panel.
         void opts.spout.restart().then(broadcastConfig, broadcastConfig);
@@ -178,19 +196,25 @@ export function startServer(opts: {
       return json(res, { ok: true });
     }
 
+    if (path === "/api/waveform/restart" && req.method === "POST") {
+      await opts.waveform.restart();
+      return json(res, await opts.waveform.getStatus());
+    }
+
     const coverMatch = path.match(/^\/api\/cover\/(\d+)$/);
     if (coverMatch) {
-      const file = coverFile(Number(coverMatch[1]));
-      if (!existsSync(file)) {
-        res.writeHead(204);
+      const asset = getCoverAsset(Number(coverMatch[1]));
+      const requestedRevision = url.searchParams.get("v");
+      if (!asset || (requestedRevision && requestedRevision !== String(asset.revision)) || !existsSync(asset.file)) {
+        res.writeHead(204, { "cache-control": "no-store" });
         res.end();
         return;
       }
       res.writeHead(200, {
-        "content-type": coverMime(file),
+        "content-type": coverMime(asset.file),
         "cache-control": "no-store",
       });
-      res.end(readFileSync(file));
+      res.end(readFileSync(asset.file));
       return;
     }
 
@@ -309,6 +333,11 @@ function spoutConfigChanged(previous: AppConfig, next: AppConfig): boolean {
     || previous.spout.maxWidth !== next.spout.maxWidth;
 }
 
+function waveformConfigChanged(previous: AppConfig, next: AppConfig): boolean {
+  return previous.waveform.enabled !== next.waveform.enabled
+    || previous.waveform.hwnd !== next.waveform.hwnd;
+}
+
 function validateConfig(cfg: AppConfig): string | null {
   if (!cfg.server || typeof cfg.server.host !== "string" || !integerInRange(cfg.server.port, 1, 65535)) {
     return "server host/port is invalid";
@@ -340,16 +369,27 @@ function validateConfig(cfg: AppConfig): string | null {
     return "Spout capture settings are invalid";
   }
 
+  if (!cfg.waveform || typeof cfg.waveform.enabled !== "boolean" || typeof cfg.waveform.hwnd !== "string"
+    || (cfg.waveform.hwnd !== "" && !/^0x[0-9a-f]{1,16}$/i.test(cfg.waveform.hwnd))) {
+    return "VirtualDJ waveform capture settings are invalid";
+  }
+
   if (!cfg.visual || !numberInRange(cfg.visual.logoSafe, 0, 0.3)
     || !numberInRange(cfg.visual.rotationSpeed, 0, 1.2)
     || !numberInRange(cfg.visual.logoSpin, 0, 2.4)
     || !numberInRange(cfg.visual.scale, 0.4, 2)
-    || !numberInRange(cfg.visual.snap, 0, 1)) {
+    || !numberInRange(cfg.visual.snap, 0, 1)
+    || !integerInRange(cfg.visual.presetRotationSeconds, 5, 300)) {
     return "visual settings are invalid";
   }
   if (typeof cfg.visual.preset !== "string" || typeof cfg.visual.palette !== "string"
     || typeof cfg.visual.alignment !== "string" || typeof cfg.visual.bloom !== "boolean"
-    || typeof cfg.visual.snapAuto !== "boolean" || typeof cfg.visual.cubeFrame !== "boolean") {
+    || typeof cfg.visual.snapAuto !== "boolean" || typeof cfg.visual.cubeFrame !== "boolean"
+    || typeof cfg.visual.preset2 !== "string" || typeof cfg.visual.preset3 !== "string"
+    || typeof cfg.visual.presetRotation !== "boolean"
+    || !VISUAL_PRESETS.some((preset) => preset === cfg.visual.preset)
+    || (cfg.visual.preset2 !== "" && !VISUAL_PRESETS.some((preset) => preset === cfg.visual.preset2))
+    || (cfg.visual.preset3 !== "" && !VISUAL_PRESETS.some((preset) => preset === cfg.visual.preset3))) {
     return "visual settings are invalid";
   }
   if (typeof cfg.nowPlaying?.txtPath !== "string" || typeof cfg.nowPlaying?.jsonPath !== "string") {

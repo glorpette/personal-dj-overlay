@@ -111,8 +111,9 @@ export async function queryDeck(client: VdjClient, deck: number) {
     elapsedMs: parseNum(elapsed),
     lengthSec: parseNum(length),
     filepath,
-    hasCover: parseBool(hasCoverRaw) || Boolean(filepath),
-    coverUrl: `/api/cover/${deck}`,
+    hasCover: parseBool(hasCoverRaw),
+    coverRevision: 0,
+    coverUrl: "",
   };
 }
 

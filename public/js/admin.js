@@ -9,6 +9,7 @@ let healthInFlight = false;
 let spoutStatusInFlight = false;
 let senderRefreshInFlight = false;
 let deviceRefreshInFlight = false;
+let waveformWindowsInFlight = false;
 let configEtag = null;
 
 async function api(path, opts) {
@@ -248,12 +249,42 @@ function fillSpoutSenders(senders, selected, active) {
   sel.dataset.selected = sel.value;
 }
 
+function fillWaveformWindows(windows, selected) {
+  const sel = $("waveformWindow");
+  if (!sel) return;
+  const current = selected ?? sel.value ?? "";
+  sel.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = "Auto-detect waveform pop-out";
+  sel.appendChild(auto);
+  for (const window of windows || []) {
+    const hwnd = Number(window.hwnd);
+    if (!Number.isSafeInteger(hwnd) || hwnd <= 0) continue;
+    const handle = `0x${hwnd.toString(16)}`;
+    const option = document.createElement("option");
+    option.value = handle;
+    const title = window.title?.trim() || "(untitled VirtualDJ window)";
+    const ownership = window.owned ? "owned pop-out" : "main/other window";
+    option.textContent = `${title} — ${window.width}×${window.height} — PID ${window.pid} — HWND ${handle} (${ownership})`;
+    sel.appendChild(option);
+  }
+  if (current && !Array.from(sel.options).some((option) => option.value.toLowerCase() === current.toLowerCase())) {
+    const missing = document.createElement("option");
+    missing.value = current;
+    missing.textContent = `HWND ${current} (not currently visible)`;
+    sel.appendChild(missing);
+  }
+  sel.value = current;
+}
+
 function applyConfig(cfg) {
   const audio = cfg.audio || {};
   const visual = cfg.visual || {};
   const vdj = cfg.vdj || {};
   const nowPlaying = cfg.nowPlaying || {};
   const spout = cfg.spout || {};
+  const waveform = cfg.waveform || {};
 
   $("backend").value = audio.backend ?? "auto";
   $("sensitivity").value = audio.sensitivity ?? 1.15;
@@ -262,6 +293,9 @@ function applyConfig(cfg) {
   updateRangeValue("smoothing", "smoothingValue");
 
   $("preset").value = visual.preset ?? "helix";
+  $("preset2").value = visual.preset2 ?? "";
+  $("preset3").value = visual.preset3 ?? "";
+  $("presetRotationSeconds").value = visual.presetRotationSeconds ?? 30;
   $("palette").value = visual.palette ?? "cyan-magenta";
   $("alignment").value = visual.alignment ?? "center";
   $("logoSafe").value = visual.logoSafe ?? 0.12;
@@ -279,6 +313,7 @@ function applyConfig(cfg) {
   setToggle($("bloomToggle"), visual.bloom);
   setToggle($("snapAutoToggle"), visual.snapAuto !== false);
   setToggle($("cubeFrameToggle"), visual.cubeFrame === true);
+  setToggle($("presetRotationToggle"), visual.presetRotation === true);
 
   $("vdjHost").value = vdj.host ?? "";
   $("vdjPort").value = vdj.port ?? 8080;
@@ -294,6 +329,8 @@ function applyConfig(cfg) {
   $("spoutQuality").value = spout.quality ?? 72;
   $("spoutMaxWidth").value = spout.maxWidth ?? 880;
   updateRangeValue("spoutQuality", "spoutQualityValue");
+  setToggle($("waveformToggle"), waveform.enabled !== false);
+  $("waveformWindow").value = waveform.hwnd || "";
   for (const id of ["spoutFps", "spoutMaxWidth", "vdjPort", "pollIntervalMs"]) {
     const input = $(id);
     if (input) input.dataset.lastValid = input.value;
@@ -303,7 +340,8 @@ function applyConfig(cfg) {
 
 function updateOverlayLink(preset) {
   const link = $("overlayLink");
-  if (link) link.href = `/overlay?preset=${encodeURIComponent(preset || "helix")}`;
+  const rotating = $("presetRotationToggle")?.getAttribute("aria-pressed") === "true";
+  if (link) link.href = rotating ? "/overlay" : `/overlay?preset=${encodeURIComponent(preset || "helix")}`;
 }
 
 function updateSpoutStatus(status) {
@@ -333,6 +371,39 @@ function updateSpoutStatus(status) {
   }, null, 2);
 }
 
+function updateWaveformStatus(status) {
+  if (!status) return;
+  const enabled = Boolean(status.enabled);
+  const capturing = enabled && Boolean(status.capturing);
+  const failed = status.state === "error" || Boolean(status.error);
+  const state = !enabled ? "DISABLED" : failed ? "ERROR" : capturing ? "CAPTURING" : String(status.state || "STARTING").toUpperCase();
+  const kind = !enabled ? "neutral" : failed ? "bad" : capturing ? "good" : "warn";
+  setToggle($("waveformToggle"), enabled);
+  setBadge($("waveformStateBadge"), state, kind);
+  setBadge($("waveformBadge"), `WAVEFORM ${capturing ? "OK" : enabled ? state : "OFF"}`, kind);
+  const active = status.activeHwnd ? ` - HWND ${status.activeHwnd}` : "";
+  const title = status.selectedTitle ? ` - ${status.selectedTitle}` : "";
+  const detail = !enabled
+    ? "Capture is off. Enable it to serve the waveform browser source."
+    : status.error || `${status.detail || state}${title}${active}`;
+  $("waveformStatusText").textContent = `${detail} · ${status.url || "http://127.0.0.1:8765/"}`;
+  $("waveformStatusText").className = `section-help ${kind}`;
+  $("waveformUrl").textContent = status.url || "http://127.0.0.1:8765/";
+  $("waveformStatus").textContent = JSON.stringify({
+    enabled: status.enabled,
+    running: status.running,
+    state: status.state,
+    detail: status.detail,
+    selectedHwnd: status.configuredHwnd || "auto",
+    activeHwnd: status.activeHwnd,
+    selectedTitle: status.selectedTitle,
+    frames: status.frames,
+    captureFps: status.captureFps,
+    url: status.url,
+    error: status.error,
+  }, null, 2);
+}
+
 function updateSystemSummary(health) {
   const summary = $("systemSummary");
   if (!summary) return;
@@ -357,6 +428,7 @@ function updateHealth(health) {
   updateSystemSummary(health);
   const audio = health.audio || {};
   const vdj = health.vdj || {};
+  const waveform = health.waveform || {};
   const audioOk = Boolean(audio.running);
   const vdjOk = Boolean(vdj.connected);
   setBadge($("audioBadge"), `AUDIO ${audioOk ? "OK" : "OFFLINE"}`, audioOk ? "good" : "bad");
@@ -370,6 +442,7 @@ function updateHealth(health) {
   $("status").textContent = JSON.stringify({
     audio: health.audio,
     spout: health.spout,
+    waveform,
     vdjConnected: health.vdj.connected,
     vdjSource: health.vdj.source,
     onAir: health.vdj.onAirDeck,
@@ -378,6 +451,7 @@ function updateHealth(health) {
   $("nowplaying").textContent = JSON.stringify(health.vdj, null, 2);
   updateNowPlayingSummary(health.vdj);
   updateSpoutStatus(health.spout);
+  updateWaveformStatus(waveform);
 }
 
 async function refreshHealth() {
@@ -428,6 +502,27 @@ async function refreshSpoutSenders() {
   }
 }
 
+async function refreshWaveformWindows() {
+  if (waveformWindowsInFlight) return;
+  waveformWindowsInFlight = true;
+  const button = $("refreshWaveformWindows");
+  setButtonBusy(button, true, "Finding windows...");
+  try {
+    const result = await api("/api/waveform/windows");
+    fillWaveformWindows(result.windows, $("waveformWindow").value);
+    if (!result.windows?.length) {
+      $("waveformStatusText").textContent = "No visible VirtualDJ windows found. Open the waveform pop-out, then refresh.";
+      $("waveformStatusText").className = "section-help warn";
+    }
+  } catch (err) {
+    $("waveformStatusText").textContent = String(err);
+    $("waveformStatusText").className = "section-help bad";
+  } finally {
+    waveformWindowsInFlight = false;
+    setButtonBusy(button, false);
+  }
+}
+
 async function refreshDevices() {
   if (deviceRefreshInFlight) return;
   deviceRefreshInFlight = true;
@@ -445,10 +540,11 @@ async function refreshDevices() {
 }
 
 async function refreshInitial() {
-  const [healthResult, configResult, devicesResult] = await Promise.allSettled([
+  const [healthResult, configResult, devicesResult, windowsResult] = await Promise.allSettled([
       api("/api/health"),
       getConfigSnapshot(),
       api("/api/devices"),
+      api("/api/waveform/windows"),
   ]);
   if (configResult.status === "rejected") {
     $("status").textContent = String(configResult.reason);
@@ -464,6 +560,9 @@ async function refreshInitial() {
     updateSystemSummary(null);
     updateNowPlayingSummary(null);
     $("status").textContent = String(healthResult.reason);
+  }
+  if (windowsResult.status === "fulfilled") {
+    fillWaveformWindows(windowsResult.value.windows, cfg.waveform?.hwnd || "");
   }
   void refreshSpoutSenders();
 }
@@ -536,9 +635,14 @@ function bindToggle(buttonId, makePatch) {
 }
 
 bindToggle("spoutToggle", (enabled) => ({ spout: { enabled } }));
+bindToggle("waveformToggle", (enabled) => ({ waveform: { enabled } }));
 bindToggle("bloomToggle", (bloom) => ({ visual: { bloom } }));
 bindToggle("snapAutoToggle", (snapAuto) => ({ visual: { snapAuto } }));
 bindToggle("cubeFrameToggle", (cubeFrame) => ({ visual: { cubeFrame } }));
+bindToggle("presetRotationToggle", (presetRotation) => {
+  updateOverlayLink($("preset").value);
+  return { visual: { presetRotation } };
+});
 
 bindImmediateSelect("device", (device) => ({ audio: { device } }));
 bindImmediateSelect("backend", (backend) => ({ audio: { backend } }));
@@ -546,12 +650,16 @@ bindImmediateSelect("preset", (preset) => {
   updateOverlayLink(preset);
   return { visual: { preset } };
 });
+for (const id of ["preset2", "preset3"]) {
+  bindImmediateSelect(id, (preset) => ({ visual: { [id]: preset } }));
+}
 bindImmediateSelect("palette", (palette) => ({ visual: { palette } }));
 bindImmediateSelect("alignment", (alignment) => ({ visual: { alignment } }));
 bindImmediateSelect("spoutSender", (sender) => {
   $("spoutSender").dataset.selected = sender;
   return { spout: { sender } };
 });
+bindImmediateSelect("waveformWindow", (hwnd) => ({ waveform: { hwnd } }));
 
 bindRange("sensitivity", "sensitivityValue", (sensitivity) => ({ audio: { sensitivity } }));
 bindRange("smoothing", "smoothingValue", (smoothing) => ({ audio: { smoothing } }));
@@ -560,6 +668,7 @@ bindRange("rotationSpeed", "rotationSpeedValue", (rotationSpeed) => ({ visual: {
 bindRange("logoSpin", "logoSpinValue", (logoSpin) => ({ visual: { logoSpin } }));
 bindRange("scale", "scaleValue", (scale) => ({ visual: { scale } }));
 bindRange("snap", "snapValue", (snap) => ({ visual: { snap } }));
+bindNumber("presetRotationSeconds", (presetRotationSeconds) => ({ visual: { presetRotationSeconds } }));
 bindRange("spoutQuality", "spoutQualityValue", (quality) => ({ spout: { quality } }));
 
 bindNumber("spoutFps", (fps) => ({ spout: { fps } }));
@@ -575,6 +684,7 @@ bindText("jsonPath", (jsonPath) => ({ nowPlaying: { jsonPath: jsonPath.trim() } 
 $("retrySave").onclick = () => void flushAllSaves();
 $("refreshDevices").onclick = () => void refreshDevices();
 $("refreshSpoutSenders").onclick = () => void refreshSpoutSenders();
+$("refreshWaveformWindows").onclick = () => void refreshWaveformWindows();
 
 $("restartAudio").onclick = async () => {
   if (!(await flushAllSaves())) return;

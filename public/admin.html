@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>VDJ Overlay - VR Booth Control</title>
-    <link rel="stylesheet" href="/css/admin.css?v=20260909-compact" />
+    <link rel="stylesheet" href="/css/admin.css?v=20260926-waveform-capture" />
   </head>
   <body>
     <header class="admin-header">
@@ -21,6 +21,7 @@
         <span id="saveState" class="status-pill neutral">READY</span>
         <span id="audioBadge" class="status-pill neutral">AUDIO --</span>
         <span id="vdjBadge" class="status-pill neutral">VDJ --</span>
+        <span id="waveformBadge" class="status-pill neutral">WAVEFORM --</span>
         <span id="spoutBadge" class="status-pill neutral">CLUB CAM --</span>
       </div>
     </header>
@@ -90,6 +91,31 @@
         </details>
       </section>
 
+      <section class="panel waveform-panel" aria-labelledby="waveformHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">OBS BROWSER SOURCE</p>
+            <h2 id="waveformHeading">VirtualDJ waveform pop-out</h2>
+            <p id="waveformStatusText" class="section-help">Starting waveform capture...</p>
+          </div>
+          <span id="waveformStateBadge" class="state-badge neutral">STARTING</span>
+        </div>
+        <button id="waveformToggle" class="toggle-button" type="button" data-label="WAVEFORM CAPTURE" aria-pressed="false">
+          <span class="toggle-copy"><strong>Waveform capture service</strong><small>Capture the VirtualDJ pop-out for OBS</small></span>
+          <span class="toggle-state">OFF</span>
+        </button>
+        <div class="hero-controls waveform-controls">
+          <label class="field field-wide">
+            <span class="field-label">VirtualDJ window (includes HWND)</span>
+            <select id="waveformWindow">
+              <option value="">Auto-detect waveform pop-out</option>
+            </select>
+          </label>
+          <button id="refreshWaveformWindows" class="button secondary" type="button">Refresh windows</button>
+        </div>
+        <p class="field-help">OBS Browser source: <code id="waveformUrl">http://127.0.0.1:8765/</code>. Auto-detect reconnects when the pop-out is reopened.</p>
+      </section>
+
       <div class="dashboard-grid">
         <section class="panel" aria-labelledby="audioHeading">
           <div class="section-heading">
@@ -148,6 +174,7 @@
                 <option value="burst">Radial burst</option>
                 <option value="cube">Bass cube</option>
                 <option value="mirrored-bars">Mirrored frequency bars</option>
+                <option value="mirrored-lightning">Mirrored lightning line</option>
               </select>
             </label>
             <label class="field">
@@ -168,6 +195,38 @@
                 <option value="side">Side column</option>
                 <option value="frame">Frame / border</option>
               </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Visualizer 2</span>
+              <select id="preset2">
+                <option value="">(not used)</option>
+                <option value="helix">Helix strands</option>
+                <option value="ribbon">Circular ribbon</option>
+                <option value="wings">Mirrored stereo wings</option>
+                <option value="tunnel">Tunnel / cylinder</option>
+                <option value="burst">Radial burst</option>
+                <option value="cube">Bass cube</option>
+                <option value="mirrored-bars">Mirrored frequency bars</option>
+                <option value="mirrored-lightning">Mirrored lightning line</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Visualizer 3</span>
+              <select id="preset3">
+                <option value="">(not used)</option>
+                <option value="helix">Helix strands</option>
+                <option value="ribbon">Circular ribbon</option>
+                <option value="wings">Mirrored stereo wings</option>
+                <option value="tunnel">Tunnel / cylinder</option>
+                <option value="burst">Radial burst</option>
+                <option value="cube">Bass cube</option>
+                <option value="mirrored-bars">Mirrored frequency bars</option>
+                <option value="mirrored-lightning">Mirrored lightning line</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Transition interval (seconds)</span>
+              <input id="presetRotationSeconds" type="number" min="5" max="300" step="1" inputmode="numeric" />
             </label>
           </div>
           <div class="control-grid two-up">
@@ -203,6 +262,10 @@
             </button>
             <button id="cubeFrameToggle" class="toggle-button" type="button" data-label="CUBE FRAME" aria-pressed="false">
               <span class="toggle-copy"><strong>Bass cube frame</strong><small>Wireframe around the logo</small></span>
+              <span class="toggle-state">OFF</span>
+            </button>
+            <button id="presetRotationToggle" class="toggle-button" type="button" data-label="AUTO VISUALIZER" aria-pressed="false">
+              <span class="toggle-copy"><strong>Random visualizer rotation</strong><small>Use up to three visualizers</small></span>
               <span class="toggle-state">OFF</span>
             </button>
           </div>
@@ -259,6 +322,10 @@
             <h3>Club Cam status</h3>
             <pre id="spoutStatus">disabled</pre>
           </div>
+          <div>
+            <h3>Waveform capture status</h3>
+            <pre id="waveformStatus">disabled</pre>
+          </div>
           <div class="diagnostic-wide">
             <h3>Now playing</h3>
             <pre id="nowplaying"></pre>
@@ -273,6 +340,6 @@
     </main>
 
     <p class="build-note">Build 2026-09-09-compact. This control surface is optimized for a 400x700 VR dashboard and coarse touch pointers.</p>
-    <script src="/js/admin.js?v=20260918-cube-frame"></script>
+    <script src="/js/admin.js?v=20260926-waveform-capture"></script>
   </body>
 </html>

@@ -105,9 +105,20 @@ export class VdjPoller {
     };
     if (byDeck.has(3)) next.deck3 = byDeck.get(3);
     if (byDeck.has(4)) next.deck4 = byDeck.get(4);
-    if (deck1.filepath) ensureCover(1, deck1.filepath);
-    if (deck2.filepath) ensureCover(2, deck2.filepath);
+    this.attachCover(deck1);
+    this.attachCover(deck2);
     this.commit(next);
+  }
+
+  private attachCover(deck: NowPlayingState["deck1"]): void {
+    const cover = ensureCover(deck.deck, deck.filepath, {
+      artist: deck.artist,
+      title: deck.title,
+      hasCover: deck.hasCover,
+    });
+    deck.coverRevision = cover.revision;
+    deck.hasCover = cover.ready;
+    deck.coverUrl = cover.ready ? `/api/cover/${deck.deck}?v=${cover.revision}` : "";
   }
 
   private applyDisconnected(message: string): void {

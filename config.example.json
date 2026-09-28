@@ -34,6 +34,10 @@
     "quality": 72,
     "maxWidth": 880
   },
+  "waveform": {
+    "enabled": true,
+    "hwnd": ""
+  },
   "visual": {
     "preset": "helix",
     "palette": "cyan-magenta",
@@ -47,6 +51,10 @@
     "logoSpin": 0.35,
     "snap": 0.35,
     "snapAuto": true,
-    "cubeFrame": false
+    "cubeFrame": false,
+    "preset2": "",
+    "preset3": "",
+    "presetRotation": false,
+    "presetRotationSeconds": 30
   }
 }

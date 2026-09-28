@@ -4,6 +4,16 @@ import { log } from "./logger.ts";
 import { resolveConfigPath } from "./runtime/paths.ts";
 
 export type AudioBackend = "auto" | "wasapi" | "ffmpeg" | "pulse" | "demo";
+export const VISUAL_PRESETS = [
+  "helix",
+  "ribbon",
+  "wings",
+  "tunnel",
+  "burst",
+  "cube",
+  "mirrored-bars",
+  "mirrored-lightning",
+] as const;
 
 export interface AppConfig {
   server: { host: string; port: number };
@@ -38,6 +48,10 @@ export interface AppConfig {
     quality: number;
     maxWidth: number;
   };
+  waveform: {
+    enabled: boolean;
+    hwnd: string;
+  };
   visual: {
     preset: string;
     palette: string;
@@ -52,6 +66,10 @@ export interface AppConfig {
     snap: number;
     snapAuto: boolean;
     cubeFrame: boolean;
+    preset2: string;
+    preset3: string;
+    presetRotation: boolean;
+    presetRotationSeconds: number;
   };
 }
 
@@ -88,6 +106,10 @@ const DEFAULTS: AppConfig = {
     quality: 72,
     maxWidth: 880,
   },
+  waveform: {
+    enabled: true,
+    hwnd: "",
+  },
   visual: {
     preset: "helix",
     palette: "cyan-magenta",
@@ -102,6 +124,10 @@ const DEFAULTS: AppConfig = {
     snap: 0.35,
     snapAuto: true,
     cubeFrame: false,
+    preset2: "",
+    preset3: "",
+    presetRotation: false,
+    presetRotationSeconds: 30,
   },
 };
 
@@ -129,7 +155,8 @@ export function loadConfig(): AppConfig {
     return structuredClone(DEFAULTS);
   }
   const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<AppConfig>;
-  return deepMerge(DEFAULTS as unknown as Record<string, unknown>, raw as Record<string, unknown>) as unknown as AppConfig;
+  const merged = deepMerge(DEFAULTS as unknown as Record<string, unknown>, raw as Record<string, unknown>) as unknown as AppConfig;
+  return merged;
 }
 
 export function saveConfig(cfg: AppConfig): void {

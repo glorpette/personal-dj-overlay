@@ -12,7 +12,8 @@
     "devices": "node src/cli-devices.ts",
     "check": "node src/cli-check.ts",
     "start:tsx": "npx tsx src/index.ts",
-    "build:win": "node scripts/build-sea.mjs"
+    "build:waveform-helper": "python scripts/build-waveform-helper.py",
+    "build:win": "npm run build:waveform-helper && node scripts/build-sea.mjs"
   },
   "engines": {
     "node": ">=20"

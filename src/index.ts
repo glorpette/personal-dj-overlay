@@ -4,6 +4,7 @@ import { log } from "./logger.ts";
 import { AudioEngine } from "./audio/capture.ts";
 import { VdjPoller } from "./vdj/poller.ts";
 import { SpoutEngine } from "./spout/receiver.ts";
+import { WaveformCaptureEngine } from "./waveform/engine.ts";
 import { startServer } from "./server.ts";
 import { readAssetText } from "./runtime/assets.ts";
 import { installFfmpeg } from "./runtime/ffmpeg-installer.ts";
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
   const audio = new AudioEngine(cfg);
   const poller = new VdjPoller(cfg);
   const spout = new SpoutEngine(cfg);
+  const waveform = new WaveformCaptureEngine(cfg);
 
   const http = startServer({
     cfg,
@@ -58,10 +60,12 @@ async function main(): Promise<void> {
       cfg = next;
       audio.applyAudioConfig(next);
       spout.applyConfig(next);
+      waveform.applyConfig(next);
     },
     audio,
     poller,
     spout,
+    waveform,
   });
   if (process.platform === "win32" && !args.has("--no-open")) {
     const url = adminUrl(cfg);
@@ -89,12 +93,14 @@ async function main(): Promise<void> {
   );
 
   poller.start();
+  await waveform.start();
   await audio.start();
   await spout.start();
 
   const shutdown = async (signal: string) => {
     log.info(`Shutting down (${signal})`);
     poller.stop();
+    await waveform.stop();
     await spout.stop();
     await audio.stop();
     await http.close();

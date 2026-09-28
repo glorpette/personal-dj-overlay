@@ -36,7 +36,10 @@ if (Number(process.versions.node.split(".")[0]) < 24) {
   throw new Error(`Node 24 or newer is required for the packaging build; received ${process.version}.`);
 }
 
-rmSync(DIST, { recursive: true, force: true });
+// Keep the user-managed config.json and data/ beside the packaged app while
+// replacing only build-owned artifacts. This is also safe when a rebuild fails.
+rmSync(SEA_DIR, { recursive: true, force: true });
+mkdirSync(DIST, { recursive: true });
 mkdirSync(SEA_DIR, { recursive: true });
 
 const helperAssets = {
@@ -50,6 +53,7 @@ const helperAssets = {
     join(ROOT, "helpers", "spout-receiver", "SpoutReceiver.cs"),
     ["/platform:x64", "/r:System.Drawing.dll"],
   ),
+  "helpers/WaveCapture.exe": stageWaveformHelper(),
 };
 
 step("Bundling application");
@@ -99,7 +103,7 @@ const manifest = [
   `Node: ${process.version}`,
   `Executable SHA-256: ${sha256File(OUTPUT)}`,
   "",
-  "The executable contains the application bundle, frontend assets, third-party notices, and native helper binaries.",
+  "The executable contains the application bundle, frontend assets, third-party notices, and Windows capture helpers.",
   "config.json and data/ are intentionally external and are created beside the executable at first launch.",
 ].join("\n");
 writeFileSync(join(DIST, "BUILD-MANIFEST.txt"), `${manifest}\n`, "utf8");
@@ -129,6 +133,17 @@ function stageHelper(name, source, cscFlags) {
     copyFileSync(fallback, target);
   }
   assertX64Pe(target, name);
+  return target;
+}
+
+function stageWaveformHelper() {
+  const source = join(ROOT, "helpers", "wave-capture", "build", "WaveCapture.exe");
+  const target = join(SEA_DIR, "helpers", "WaveCapture.exe");
+  if (!existsSync(source)) {
+    throw new Error(`Waveform capture helper not found: ${source}. Run npm run build:waveform-helper first.`);
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  copyFileSync(source, target);
   return target;
 }
 

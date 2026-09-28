@@ -174,6 +174,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
 h2 { margin: 0; font-size: clamp(22px, 3vw, 30px); letter-spacing: -0.035em; }
 .section-help, .field-help { margin: 7px 0 0; color: var(--muted); font-size: 15px; }
+.section-help.good { color: var(--good); }
+.section-help.warn { color: var(--warn); }
+.section-help.bad { color: var(--bad); }
 .hero-heading { align-items: center; }
 .hero-heading .eyebrow { margin-bottom: 3px; }
 .hero-controls, .control-grid, .button-row, .toggle-grid { display: grid; gap: 12px; }

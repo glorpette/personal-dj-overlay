@@ -6,6 +6,7 @@ Local booth service for live VirtualDJ events:
 2. Serves a **transparent 3D waveform overlay** at `http://127.0.0.1:4780/overlay`.
 3. Polls VirtualDJ **Network Control** HTTP and atomically writes **Deck 1 + Deck 2** metadata to disk.
 4. Optionally receives a **Spout2 DX11 sender** through a native helper and displays it in a fixed WebGL camera panel.
+5. Captures VirtualDJ's **waveform pop-out** for a separate OBS browser source, with managed window selection by HWND.
 
 Built for unattended use on the same PC as VirtualDJ. Runtime: Node.js 24 LTS for source development, or the Windows x64 single executable described below. FFmpeg is optional on Windows and can be installed from the app's pinned LGPL build.
 
@@ -13,6 +14,7 @@ Built for unattended use on the same PC as VirtualDJ. Runtime: Node.js 24 LTS fo
 [VirtualDJ] --HTTP poll--> [this service] --atomic write--> data/nowplaying.txt
 [Output device loopback] -> ffmpeg/parec -> FFT -> WebSocket -> /overlay (WebGL, alpha)
 [Spout2 sender] -> native DX11 receiver -> JPEG WebSocket -> fixed WebGL camera panel
+[VirtualDJ waveform pop-out] -> Windows Graphics Capture helper -> /waveform MJPEG (port 8765)
 [OBS / static page] embeds overlay URL and reads the text file
 ```
 
@@ -43,7 +45,7 @@ First-frame path: HTTP server binds immediately; audio capture starts in paralle
 
 ## Windows single executable
 
-Build on a Windows x64 machine with Node 24 LTS and the .NET Framework 4.x
+Build on a Windows x64 machine with Node 24 LTS, Python 3.14+, and the .NET Framework 4.x
 compiler available:
 
 ```powershell
@@ -52,10 +54,13 @@ npm run build:win
 ```
 
 The output is `dist\VDJLiveOverlay.exe`. The executable embeds the Node
-bundle, frontend assets, third-party notices, and x64 WASAPI/Spout helpers.
+bundle, frontend assets, third-party notices, and x64 WASAPI/Spout/waveform helpers.
 On first launch it creates `config.json` and `data\` beside the executable,
 opens `/admin`, and extracts verified helpers to
 `%LOCALAPPDATA%\vdj-live-overlay`. Use `--no-open` for unattended startup.
+The build creates the Python-based waveform helper as a self-contained Windows
+executable; PyInstaller and pinned capture packages are installed into an
+ignored local build folder as needed.
 
 Useful packaged commands:
 
@@ -144,6 +149,28 @@ The helper follows the same shared-DX11-texture approach used by the OBS Spout2 
 
 The camera is a fixed panel in the upper-right of the overlay. Enabling it reveals the panel with the same `flyIn` animation used by the DECK 1 card. The panel uses an ordinary opaque JPEG feed; transparency remains around the panel, not inside the video. This bridge intentionally favors a basic reliable implementation over zero-copy GPU transport.
 
+### VirtualDJ waveform pop-out
+
+The application starts and supervises the Windows Graphics Capture helper;
+there is no separate Python command to launch. In `/admin`, leave the window
+selector on **Auto-detect waveform pop-out**, or refresh the list and select a
+specific VirtualDJ window. Each item includes its title, dimensions, PID, and
+hexadecimal HWND. Auto mode reconnects when the pop-out is reopened; a fixed
+HWND is useful when VirtualDJ has multiple candidate windows.
+
+Add a second OBS **Browser** source at `http://127.0.0.1:8765/` and set its
+size to 1920×1080. This remains separate from the transparent overlay source at
+port 4780. The waveform source keeps the existing dark center and the two
+captured edge strips. It is an opaque source, not alpha-composited. The app
+restores the pop-out's owner and window styles during normal shutdown. Do not
+minimize the selected pop-out while capturing. Stop any other waveform helper
+already using port 8765 before enabling the managed capture.
+
+Waveform endpoints on port 8765: `/health` reports capture state, `/windows`
+lists visible VirtualDJ windows, `/snapshot.jpg` returns the latest frame,
+and `/stream` serves MJPEG. The admin page exposes the window list and capture
+status through the overlay API.
+
 Useful endpoints:
 
 - `/api/spout/status` — native receiver state and current dimensions.
@@ -163,18 +190,31 @@ Query overrides (optional):
 /overlay?preset=wings&palette=amber-ice&cubeframe=1&align=bottom&safe=0.16&spin=0.2&scale=1
 ```
 
-Presets: `helix`, `ribbon`, `wings`, `tunnel`, `burst`, `cube`, `mirrored-bars`
+Add `&debug=true` to show a bottom-centered browser-render FPS counter. It
+measures the overlay page's completed render-loop cadence, not OBS's final
+composited output FPS.
+
+Presets: `helix`, `ribbon`, `wings`, `tunnel`, `burst`, `cube`, `mirrored-bars`, `mirrored-lightning`
 Alignments: `center`, `bottom`, `side`, `frame`
 
-`mirrored-bars` is intentionally front-facing and centered so its rounded
-frequency bars can span the full viewport; the global scale and palette still
-apply.
+`mirrored-bars` and `mirrored-lightning` are intentionally front-facing and
+centered so their frequency visuals can span the full viewport; the global
+scale and palette still apply. Both include a subtle depth shadow behind the
+waveform layer.
 
 Enable **Bass cube frame** in the admin panel to add the audio-reactive
 wireframe around the logo independently of the selected preset. It is also
 available as the URL override `cubeframe=1`; use `cubeframe=0` to force it off.
 The standalone frame is omitted when the `cube` preset is selected because
 that preset already includes its own cube geometry.
+
+The admin panel can rotate randomly between up to three configured visualizer
+presets. Rotation is off by default and uses a 30-second dwell interval; the
+interval can be changed from 5–300 seconds. A `preset=` URL override disables
+rotation for predictable preview and OBS URLs. When `cube` is the currently
+displayed preset, the standalone Bass Cube Frame is temporarily omitted so the
+cube is never rendered twice. The saved frame setting returns automatically
+when rotation moves to another preset.
 
 ## Now-playing files
 
@@ -223,7 +263,11 @@ Writes happen on change and on a 5s heartbeat (`nowPlaying.heartbeatMs`).
 - `vdj.host` / `port` / `bearer` / `pollIntervalMs` / `decks`
 - `nowPlaying.txtPath` / `jsonPath`
 - `spout.enabled` / `sender` / `fps` / `quality` / `maxWidth`
-- `visual.*` — also editable live from `/admin`
+- `waveform.enabled` / `waveform.hwnd` — managed capture switch and optional
+  hexadecimal HWND; empty selects Auto-detect.
+- `visual.*` — also editable live from `/admin`; `preset2` / `preset3` add optional
+  rotation slots, `presetRotation` enables random switching, and
+  `presetRotationSeconds` controls the dwell time.
 
 ## Performance
 
